@@ -1,28 +1,68 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 	import { BookOpen, User, Menu, Sun, Moon } from 'lucide-svelte';
 
 	let { children } = $props();
 	let mobileMenuOpen = $state(false);
+	let currentTheme = $state('light'); // Default to light theme
 
 	function toggleMobileMenu() {
 		mobileMenuOpen = !mobileMenuOpen;
 	}
 
 	function toggleTheme() {
-		// DaisyUI theme switching
+		// DaisyUI theme switching with localStorage persistence
 		const themes = ['light', 'dark', 'cupcake', 'emerald', 'corporate', 'forest'];
-		const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
 		const currentIndex = themes.indexOf(currentTheme);
 		const nextIndex = (currentIndex + 1) % themes.length;
-		document.documentElement.setAttribute('data-theme', themes[nextIndex]);
+		const newTheme = themes[nextIndex];
+		
+		setTheme(newTheme);
 	}
+
+	function setTheme(theme: string) {
+		currentTheme = theme;
+		document.documentElement.setAttribute('data-theme', theme);
+		// Store in localStorage
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('theme', theme);
+		}
+	}
+
+	function loadThemeFromStorage() {
+		if (typeof localStorage !== 'undefined') {
+			const savedTheme = localStorage.getItem('theme');
+			if (savedTheme) {
+				setTheme(savedTheme);
+			} else {
+				// Set default theme if no saved theme
+				setTheme('light');
+			}
+		} else {
+			// Fallback for SSR
+			setTheme('light');
+		}
+	}
+
+	// Load theme when component mounts
+	onMount(() => {
+		loadThemeFromStorage();
+	});
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 	<title>Revathi Arts and Music School</title>
+	<!-- Prevent theme flash by setting theme as early as possible -->
+	<script>
+		// This runs before the page renders to prevent theme flash
+		(function() {
+			const savedTheme = localStorage.getItem('theme') || 'light';
+			document.documentElement.setAttribute('data-theme', savedTheme);
+		})();
+	</script>
 </svelte:head>
 
 <!-- DaisyUI Navigation -->
@@ -53,9 +93,16 @@
 	</div>
 	
 	<div class="navbar-end">
-		<button class="btn btn-ghost btn-circle" onclick={toggleTheme}>
-			<Sun class="w-5 h-5" />
-		</button>
+		<div class="flex items-center space-x-2">
+			<span class="text-xs text-base-content/70 hidden sm:block capitalize">{currentTheme}</span>
+			<button class="btn btn-ghost btn-circle" onclick={toggleTheme} title="Change theme (current: {currentTheme})">
+				{#if currentTheme === 'dark'}
+					<Moon class="w-5 h-5" />
+				{:else}
+					<Sun class="w-5 h-5" />
+				{/if}
+			</button>
+		</div>
 		<div class="dropdown dropdown-end">
 			<div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
 				<div class="w-10 rounded-full">
