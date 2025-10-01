@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { Users, Search, ChevronLeft, ChevronRight, Mail } from 'lucide-svelte';
 	import { StudentService, type Student } from '$lib';
 
@@ -12,6 +13,14 @@
 	let totalElements = 0;
 	let totalPages = 0;
 	let searchQuery = '';
+
+	// Navigation function
+	function navigateToStudent(student: Student) {
+		const studentId = student.admissionNo || student.admissionId;
+		if (studentId) {
+			goto(`/students/${studentId}`);
+		}
+	}
 
 	// Use the refactored service
 	async function fetchStudents(page: number = 0, size: number = 10, search: string = '') {
@@ -168,15 +177,21 @@
 								<th>Admission ID</th>
 								<th>Student Name</th>
 								<th>Class</th>
+								<th>School</th>
 								<th>Contact</th>
 								<th>Status</th>
-								<th>Actions</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each students as student, index (student.admissionId || `student-${index}`)}
-								<tr class="hover">
-									<td class="font-mono text-sm">{student.admissionId || index + 1}</td>
+							{#each students as student, index (student.admissionNo || student.admissionId || `student-${index}`)}
+								<tr 
+									class="hover cursor-pointer" 
+									on:click={() => navigateToStudent(student)}
+									role="button"
+									tabindex="0"
+									on:keydown={(e) => e.key === 'Enter' && navigateToStudent(student)}
+								>
+									<td class="font-mono text-sm">{student.admissionNo || student.admissionId || index + 1}</td>
 									<td>
 										<div>
 											<div class="font-bold">{student.studentName || 'Unknown'}</div>
@@ -191,6 +206,9 @@
 										</div>
 									</td>
 									<td>
+										<div class="text-sm">{student.school || 'N/A'}</div>
+									</td>
+									<td>
 										<div class="flex items-center space-x-2">
 											<Mail class="w-4 h-4 text-base-content/50" />
 											<span class="text-sm">{student.contactNo || 'No contact'}</span>
@@ -199,13 +217,6 @@
 									<td>
 										<div class="badge" class:badge-success={student.status === 'active'} class:badge-warning={student.status !== 'active'}>
 											{student.status || 'Unknown'}
-										</div>
-									</td>
-									<td>
-										<div class="flex space-x-2">
-											<button class="btn btn-ghost btn-xs">View</button>
-											<button class="btn btn-ghost btn-xs">Edit</button>
-											<button class="btn btn-ghost btn-xs text-error">Delete</button>
 										</div>
 									</td>
 								</tr>

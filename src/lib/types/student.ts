@@ -1,6 +1,6 @@
 // Student-related types
 export interface Student {
-	admissionId?: number;
+	admissionNo?: number;  // Primary admission identifier
 	studentName?: string;
 	admissionDate?: string;
 	contactNo?: string;
