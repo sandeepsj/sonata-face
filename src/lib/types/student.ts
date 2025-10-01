@@ -44,3 +44,25 @@ export interface StudentSearchParams {
 	sortBy?: string;
 	sortDirection?: 'asc' | 'desc';
 }
+
+// Advanced search parameters for student API
+export interface StudentAdvancedSearchParams {
+	// Individual field searches
+	name?: string;
+	contactNo?: string;
+	admissionNo?: string;
+	school?: string;
+	className?: string;
+	pinCode?: string;
+	
+	// Date range search
+	admissionDate?: string;
+	admissionDateFrom?: string;
+	admissionDateTo?: string;
+	
+	// Pagination
+	page?: number;
+	size?: number;
+	sortBy?: string;
+	sortDirection?: 'asc' | 'desc';
+}

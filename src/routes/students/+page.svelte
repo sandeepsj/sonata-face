@@ -1,8 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Users, Search, ChevronLeft, ChevronRight, Mail } from 'lucide-svelte';
-	import { StudentService, type Student } from '$lib';
+	import { 
+		Users, 
+		Search, 
+		ChevronLeft, 
+		ChevronRight, 
+		Mail, 
+		Filter,
+		X,
+		Calendar,
+		MapPin,
+		School,
+		Hash,
+		Phone,
+		User,
+		ChevronDown,
+		ChevronUp
+	} from 'lucide-svelte';
+	import { StudentService, type Student, type StudentAdvancedSearchParams } from '$lib';
 
 	// Reactive state - much simpler now!
 	let students: Student[] = [];
@@ -14,6 +30,74 @@
 	let totalPages = 0;
 	let searchQuery = '';
 
+	// Advanced search state
+	let showAdvancedSearch = false;
+	let advancedSearchParams: StudentAdvancedSearchParams = {
+		name: '',
+		contactNo: '',
+		admissionNo: '',
+		school: '',
+		className: '',
+		pinCode: '',
+		admissionDate: '',
+		admissionDateFrom: '',
+		admissionDateTo: ''
+	};
+
+	// Active filters for display
+	$: activeFilters = getActiveFilters();
+	$: activeAdvancedFiltersCount = getActiveAdvancedFiltersCount();
+
+	function getActiveAdvancedFiltersCount() {
+		return Object.values(advancedSearchParams).filter(v => v !== undefined && v !== null && v !== '').length;
+	}
+
+	function getActiveFilters() {
+		const filters: Array<{key: string, value: string, label: string}> = [];
+		
+		if (searchQuery) {
+			filters.push({ key: 'searchQuery', value: searchQuery, label: `Name: "${searchQuery}"` });
+		}
+		
+		if (advancedSearchParams.name) {
+			filters.push({ key: 'name', value: advancedSearchParams.name, label: `Name: "${advancedSearchParams.name}"` });
+		}
+		
+		if (advancedSearchParams.contactNo) {
+			filters.push({ key: 'contactNo', value: advancedSearchParams.contactNo, label: `Phone: "${advancedSearchParams.contactNo}"` });
+		}
+		
+		if (advancedSearchParams.admissionNo) {
+			filters.push({ key: 'admissionNo', value: advancedSearchParams.admissionNo, label: `Admission: "${advancedSearchParams.admissionNo}"` });
+		}
+		
+		if (advancedSearchParams.school) {
+			filters.push({ key: 'school', value: advancedSearchParams.school, label: `School: "${advancedSearchParams.school}"` });
+		}
+		
+		if (advancedSearchParams.className) {
+			filters.push({ key: 'className', value: advancedSearchParams.className, label: `Class: "${advancedSearchParams.className}"` });
+		}
+		
+		if (advancedSearchParams.pinCode) {
+			filters.push({ key: 'pinCode', value: advancedSearchParams.pinCode, label: `Pin: "${advancedSearchParams.pinCode}"` });
+		}
+		
+		if (advancedSearchParams.admissionDate) {
+			filters.push({ key: 'admissionDate', value: advancedSearchParams.admissionDate, label: `Date: "${advancedSearchParams.admissionDate}"` });
+		}
+		
+		if (advancedSearchParams.admissionDateFrom) {
+			filters.push({ key: 'admissionDateFrom', value: advancedSearchParams.admissionDateFrom, label: `From: "${advancedSearchParams.admissionDateFrom}"` });
+		}
+		
+		if (advancedSearchParams.admissionDateTo) {
+			filters.push({ key: 'admissionDateTo', value: advancedSearchParams.admissionDateTo, label: `To: "${advancedSearchParams.admissionDateTo}"` });
+		}
+		
+		return filters;
+	}
+
 	// Navigation function
 	function navigateToStudent(student: Student) {
 		const studentId = student.admissionNo || student.admissionId;
@@ -22,13 +106,47 @@
 		}
 	}
 
-	// Use the refactored service
-	async function fetchStudents(page: number = 0, size: number = 10, search: string = '') {
+	// Use the refactored service with advanced search support
+	async function fetchStudents(page: number = 0, size: number = 10) {
 		loading = true;
 		error = '';
 		
 		try {
-			const response = await StudentService.getStudents({ page, size, search });
+			// Check if we have any search parameters (quick search or advanced search)
+			const hasAdvancedSearch = Object.values(advancedSearchParams).some(v => v !== undefined && v !== null && v !== '');
+			const hasQuickSearch = searchQuery && searchQuery.trim() !== '';
+			
+			let response;
+			
+			if (hasQuickSearch || hasAdvancedSearch) {
+				// Use advanced search for any search (including quick name search)
+				const searchParams: StudentAdvancedSearchParams = {
+					page,
+					size,
+					...advancedSearchParams
+				};
+
+				// Add quick search as name parameter
+				if (hasQuickSearch) {
+					searchParams.name = searchQuery.trim();
+				}
+
+				// Clean empty values
+				Object.keys(searchParams).forEach(key => {
+					const value = searchParams[key as keyof StudentAdvancedSearchParams];
+					if (value === undefined || value === null || value === '') {
+						delete searchParams[key as keyof StudentAdvancedSearchParams];
+					}
+				});
+
+				response = await StudentService.advancedSearchStudents(searchParams);
+			} else {
+				// No search parameters, use regular endpoint for listing all students
+				response = await StudentService.getStudents({ 
+					page, 
+					size 
+				});
+			}
 			
 			students = response.content;
 			totalElements = response.totalElements;
@@ -50,20 +168,56 @@
 	// Navigation functions
 	function goToPage(page: number) {
 		if (page >= 0 && page < totalPages) {
-			fetchStudents(page, pageSize, searchQuery);
+			fetchStudents(page, pageSize);
 		}
 	}
 
 	function handleSearch() {
 		currentPage = 0; // Reset to first page on search
-		fetchStudents(0, pageSize, searchQuery);
+		fetchStudents(0, pageSize);
+	}
+
+	function handleAdvancedSearch() {
+		currentPage = 0; // Reset to first page on search
+		fetchStudents(0, pageSize);
+	}
+
+	function clearFilter(filterKey: string) {
+		if (filterKey === 'searchQuery') {
+			searchQuery = '';
+		} else {
+			advancedSearchParams[filterKey as keyof typeof advancedSearchParams] = '';
+		}
+		// Reset page size to 10 and go to first page
+		pageSize = 10;
+		currentPage = 0;
+		handleSearch();
+	}
+
+	function clearAllFilters() {
+		searchQuery = '';
+		advancedSearchParams = {
+			name: '',
+			contactNo: '',
+			admissionNo: '',
+			school: '',
+			className: '',
+			pinCode: '',
+			admissionDate: '',
+			admissionDateFrom: '',
+			admissionDateTo: ''
+		};
+		// Reset page size to 10 and go to first page
+		pageSize = 10;
+		currentPage = 0;
+		handleSearch();
 	}
 
 	function handlePageSizeChange(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		pageSize = parseInt(target.value);
 		currentPage = 0; // Reset to first page
-		fetchStudents(0, pageSize, searchQuery);
+		fetchStudents(0, pageSize);
 	}
 
 	// Load initial data
@@ -99,13 +253,16 @@
 	<div class="card bg-base-100 shadow-xl mb-6">
 		<div class="card-body">
 			<div class="flex flex-col md:flex-row gap-4">
-				<!-- Search Input -->
+				<!-- Quick Search Input -->
 				<div class="flex-1">
 					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Quick Search by Name</span>
+						</label>
 						<div class="input-group">
 							<input
 								type="text"
-								placeholder="Search students by name or contact..."
+								placeholder="Search students by name..."
 								class="input input-bordered flex-1"
 								bind:value={searchQuery}
 								on:keydown={(e) => e.key === 'Enter' && handleSearch()}
@@ -114,6 +271,34 @@
 								<Search class="w-5 h-5" />
 							</button>
 						</div>
+					</div>
+				</div>
+
+				<!-- Advanced Search Toggle -->
+				<div class="form-control">
+					<label class="label">
+						<span class="label-text">Filters</span>
+					</label>
+					<div class="relative">
+						<button 
+							class="btn btn-outline"
+							class:btn-active={showAdvancedSearch}
+							on:click={() => showAdvancedSearch = !showAdvancedSearch}
+						>
+							<Filter class="w-4 h-4 mr-2" />
+							Advanced
+							{#if showAdvancedSearch}
+								<ChevronUp class="w-4 h-4 ml-2" />
+							{:else}
+								<ChevronDown class="w-4 h-4 ml-2" />
+							{/if}
+						</button>
+						<!-- Badge showing active filter count when collapsed -->
+						{#if !showAdvancedSearch && activeAdvancedFiltersCount > 0}
+							<div class="badge badge-primary badge-sm absolute -top-1 -right-1">
+								{activeAdvancedFiltersCount}
+							</div>
+						{/if}
 					</div>
 				</div>
 
@@ -130,6 +315,188 @@
 					</select>
 				</div>
 			</div>
+
+			<!-- Advanced Search Panel -->
+			{#if showAdvancedSearch}
+				<div class="divider">Advanced Search Options</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					<!-- Name Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<User class="w-4 h-4 inline mr-1" />
+								Student Name
+							</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter student name"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.name}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- Contact Number Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<Phone class="w-4 h-4 inline mr-1" />
+								Contact Number
+							</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter phone number"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.contactNo}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- Admission Number Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<Hash class="w-4 h-4 inline mr-1" />
+								Admission Number
+							</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter admission number"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.admissionNo}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- School Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<School class="w-4 h-4 inline mr-1" />
+								School
+							</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter school name"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.school}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- Class Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Class</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter class"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.className}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- Pin Code Search -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<MapPin class="w-4 h-4 inline mr-1" />
+								Pin Code
+							</span>
+						</label>
+						<input
+							type="text"
+							placeholder="Enter pin code"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.pinCode}
+							on:keydown={(e) => e.key === 'Enter' && handleAdvancedSearch()}
+						/>
+					</div>
+
+					<!-- Admission Date -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">
+								<Calendar class="w-4 h-4 inline mr-1" />
+								Admission Date
+							</span>
+						</label>
+						<input
+							type="date"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.admissionDate}
+							on:change={handleAdvancedSearch}
+						/>
+					</div>
+
+					<!-- Date Range From -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Date From</span>
+						</label>
+						<input
+							type="date"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.admissionDateFrom}
+							on:change={handleAdvancedSearch}
+						/>
+					</div>
+
+					<!-- Date Range To -->
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Date To</span>
+						</label>
+						<input
+							type="date"
+							class="input input-bordered"
+							bind:value={advancedSearchParams.admissionDateTo}
+							on:change={handleAdvancedSearch}
+						/>
+					</div>
+				</div>
+
+				<!-- Advanced Search Actions -->
+				<div class="flex flex-wrap gap-2 mt-4">
+					<button class="btn btn-primary" on:click={handleAdvancedSearch}>
+						<Search class="w-4 h-4 mr-2" />
+						Apply Filters
+					</button>
+					<button class="btn btn-ghost" on:click={clearAllFilters}>
+						<X class="w-4 h-4 mr-2" />
+						Clear All
+					</button>
+				</div>
+			{/if}
+
+			<!-- Active Filters Display -->
+			{#if activeFilters.length > 0}
+				<div class="divider">Active Filters</div>
+				<div class="flex flex-wrap gap-2">
+					{#each activeFilters as filter}
+						<div class="badge badge-primary gap-2">
+							{filter.label}
+							<button
+								class="btn btn-ghost btn-xs btn-circle"
+								on:click={() => clearFilter(filter.key)}
+							>
+								<X class="w-3 h-3" />
+							</button>
+						</div>
+					{/each}
+					{#if activeFilters.length > 1}
+						<button class="btn btn-ghost btn-xs" on:click={clearAllFilters}>
+							Clear All
+						</button>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -150,7 +517,7 @@
 						<div class="text-xs">{error}</div>
 					</div>
 					<div>
-						<button class="btn btn-sm btn-outline" on:click={() => fetchStudents(currentPage, pageSize, searchQuery)}>
+						<button class="btn btn-sm btn-outline" on:click={() => fetchStudents(currentPage, pageSize)}>
 							Retry
 						</button>
 					</div>

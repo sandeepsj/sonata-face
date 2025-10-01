@@ -37,6 +37,75 @@
 ### 🏗️ **Layered Architecture**
 Follow this structure for all new features:
 
+### ⚠️ **CRITICAL: Data Passing from Layout to Pages**
+**ALWAYS use SvelteKit's `load` function to pass data from layouts to pages - NOT slot props or context API**
+
+This was a major issue that took significant debugging time. The solution pattern:
+
+#### ✅ **Correct Approach - Use Load Functions:**
+```typescript
+// +layout.ts
+import { error } from '@sveltejs/kit';
+import { StudentService } from '$lib';
+import type { LayoutLoad } from './$types';
+
+export const load: LayoutLoad = async ({ params }) => {
+  const studentId = params.id;
+  
+  if (!studentId) {
+    throw error(400, 'Student ID is required');
+  }
+
+  try {
+    const student = await StudentService.getStudent(Number(studentId));
+    
+    if (!student) {
+      throw error(404, 'Student not found');
+    }
+
+    return {
+      student
+    };
+  } catch (err) {
+    console.error('Error loading student:', err);
+    throw error(500, 'Failed to load student data');
+  }
+};
+
+// +layout.svelte
+<script lang="ts">
+  import type { LayoutData } from './$types';
+  
+  export let data: LayoutData;
+  $: student = data.student;
+</script>
+
+<div>
+  <!-- Layout content -->
+  <slot {student} />
+</div>
+
+// +page.svelte
+<script lang="ts">
+  import type { Student } from '$lib';
+  
+  export let student: Student; // Received from layout slot
+</script>
+```
+
+#### ❌ **Avoid These Approaches:**
+- Using `onMount()` + slot props (causes timing issues)
+- Context API for layout-to-page data passing
+- Client-side data fetching in layouts for SSR data
+
+#### 🎯 **Why Load Functions Work Better:**
+- **Server-Side Rendering**: Data fetched on server, faster initial loads
+- **Automatic Error Handling**: Built-in error pages and boundaries  
+- **TypeScript Support**: Generated types for layout data
+- **Reactive Updates**: Automatic re-running when params change
+- **No Timing Issues**: Data guaranteed available when components render
+- **Standard Pattern**: Follows SvelteKit conventions
+
 ```
 src/lib/
 ├── types/           # TypeScript interfaces and types
@@ -153,6 +222,11 @@ For new entity pages, follow this pattern:
 - Form validation library
 - Date/time utilities
 - Export functionality
+
+### 📚 **Lessons Learned**
+- **Data Flow Issue**: Spent significant time debugging undefined props in page components when using slot props from layouts. **Solution: Always use SvelteKit load functions for layout-to-page data passing.**
+- **Slot Props Limitation**: Direct slot prop passing from layouts to pages has timing issues in SvelteKit's routing system
+- **Load Function Benefits**: Provides SSR support, automatic error handling, TypeScript integration, and eliminates timing issues
 
 ## Next Steps
 - Create courses management page following the same patterns
