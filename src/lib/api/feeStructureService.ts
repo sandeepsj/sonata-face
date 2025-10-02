@@ -85,4 +85,29 @@ export class FeeStructureService {
 	static calculateYearlyFee(termFees: FeeStructure[]): number {
 		return termFees.reduce((total, fee) => total + fee.amount, 0);
 	}
+
+	/**
+	 * Infer terms per year for a specific course and year from fee structure data
+	 */
+	static getTermsPerYear(courseId: string, year: number, feeStructures: FeeStructure[]): number {
+		const courseTerms = feeStructures.filter(fs => 
+			fs.course.id === courseId && fs.year === year
+		);
+		return courseTerms.length;
+	}
+
+	/**
+	 * Get maximum terms per year for a course across all years
+	 */
+	static getMaxTermsPerYear(courseId: string, feeStructures: FeeStructure[]): number {
+		const courseStructures = feeStructures.filter(fs => fs.course.id === courseId);
+		const termsByYear = new Map<number, number>();
+		
+		courseStructures.forEach(fs => {
+			const year = fs.year;
+			termsByYear.set(year, (termsByYear.get(year) || 0) + 1);
+		});
+		
+		return Math.max(...Array.from(termsByYear.values()), 0);
+	}
 }

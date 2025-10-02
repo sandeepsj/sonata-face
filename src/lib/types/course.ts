@@ -3,7 +3,6 @@
 export interface Course {
 	id: string;
 	name: string;
-	termsPerYear: number;
 }
 
 export interface FeeStructure {

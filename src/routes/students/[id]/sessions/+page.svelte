@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { StudentSessionService, CourseService, type StudentSession, type Course, type CreateStudentSessionRequest } from '$lib';
-	import { Calendar, BookOpen, Clock, User, AlertCircle, CheckCircle, Plus, X } from 'lucide-svelte';
+	import { Calendar, BookOpen, Clock, User, AlertCircle, CheckCircle, Plus, X, AlertTriangle } from 'lucide-svelte';
 
 	// Get student ID from URL params
 	$: studentId = Number($page.params.id);
@@ -23,6 +23,11 @@
 
 	// Filter state
 	let sessionFilter: 'all' | 'active' | 'inactive' = 'all';
+
+	// Confirmation modal state
+	let showConfirmModal = false;
+	let sessionToEnd: StudentSession | null = null;
+	let endingSession = false;
 
 	// Computed values
 	$: groupedSessions = StudentSessionService.groupSessionsByStatus(sessions);
@@ -61,13 +66,43 @@
 	}
 
 	async function handleDisjoinSession(sessionId: number) {
+		// Find the session to end
+		const session = sessions.find(s => s.id === sessionId);
+		if (!session) {
+			error = 'Session not found';
+			return;
+		}
+
+		// Show confirmation modal
+		sessionToEnd = session;
+		showConfirmModal = true;
+	}
+
+	function cancelEndSession() {
+		showConfirmModal = false;
+		sessionToEnd = null;
+		endingSession = false;
+	}
+
+	async function confirmEndSession() {
+		if (!sessionToEnd) return;
+
 		try {
-			await StudentSessionService.disjoinSession(sessionId);
-			// Reload sessions after disjoining
+			endingSession = true;
+			error = '';
+
+			await StudentSessionService.disjoinSession(sessionToEnd.id);
+			
+			// Close modal and reload data
+			showConfirmModal = false;
+			sessionToEnd = null;
 			await loadStudentSessions();
+
 		} catch (err) {
-			console.error('Error disjoining session:', err);
+			console.error('Error ending session:', err);
 			error = err instanceof Error ? err.message : 'Failed to end session';
+		} finally {
+			endingSession = false;
 		}
 	}
 
@@ -565,6 +600,85 @@
 			</div>
 		</div>
 		<div class="modal-backdrop" on:click={closeEnrollmentModal}></div>
+	</div>
+{/if}
+
+<!-- End Session Confirmation Modal -->
+{#if showConfirmModal && sessionToEnd}
+	<div class="modal modal-open">
+		<div class="modal-box">
+			<div class="flex items-start gap-4">
+				<div class="flex-shrink-0">
+					<AlertTriangle class="w-8 h-8 text-warning" />
+				</div>
+				<div class="flex-1">
+					<h3 class="font-bold text-lg text-base-content">Confirm End Session</h3>
+					<div class="py-4 space-y-3">
+						<p class="text-base-content/80">
+							Are you sure you want to end this session? This action <strong>cannot be undone</strong>.
+						</p>
+						
+						<div class="bg-base-200 p-4 rounded-lg">
+							<div class="space-y-2">
+								<div class="flex items-center gap-2">
+									<BookOpen class="w-4 h-4 text-base-content/60" />
+									<span class="font-semibold">{sessionToEnd.course.name}</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<Calendar class="w-4 h-4 text-base-content/60" />
+									<span class="text-sm">
+										Started: {StudentSessionService.formatDate(sessionToEnd.dateOfJoining)}
+									</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<Clock class="w-4 h-4 text-base-content/60" />
+									<span class="text-sm">
+										Duration: {StudentSessionService.calculateSessionDuration(sessionToEnd)}
+									</span>
+								</div>
+							</div>
+						</div>
+
+						<div class="alert alert-warning">
+							<AlertTriangle class="w-5 h-5" />
+							<div class="text-sm">
+								<div class="font-semibold">Important:</div>
+								<ul class="list-disc list-inside mt-1 space-y-1">
+									<li>This will mark the session as completed with today's date</li>
+									<li>The student will be unenrolled from this course</li>
+									<li>This action cannot be reversed</li>
+									<li>Historical data will be preserved for reporting</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="modal-action">
+				<button 
+					class="btn btn-ghost"
+					on:click={cancelEndSession}
+					disabled={endingSession}
+				>
+					<X class="w-4 h-4" />
+					Cancel
+				</button>
+				<button 
+					class="btn btn-error"
+					on:click={confirmEndSession}
+					disabled={endingSession}
+				>
+					{#if endingSession}
+						<span class="loading loading-spinner loading-sm"></span>
+					{:else}
+						<AlertTriangle class="w-4 h-4" />
+					{/if}
+					Yes, End Session
+				</button>
+			</div>
+		</div>
+		<div class="modal-backdrop" on:click={cancelEndSession}></div>
 	</div>
 {/if}
 

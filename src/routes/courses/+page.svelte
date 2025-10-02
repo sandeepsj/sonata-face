@@ -51,6 +51,46 @@
 	function getCourseInfo(courseId: string): Course | undefined {
 		return courses.find(c => c.id === courseId);
 	}
+
+	/**
+	 * Calculate month range for a specific term based on course's terms per year
+	 * Term 1 always starts with January, terms are evenly distributed throughout the year
+	 */
+	function getTermMonthRange(termNumber: number, termsPerYear: number): string {
+		// Calendar year months (January to December)
+		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		
+		if (termsPerYear <= 0 || termNumber <= 0 || termNumber > termsPerYear) {
+			return 'Invalid';
+		}
+		
+		// Calculate months per term (12 months / number of terms)
+		const monthsPerTerm = 12 / termsPerYear;
+		
+		// Calculate start and end month indices for this term (Term 1 starts at index 0 = January)
+		const startMonthIndex = Math.floor((termNumber - 1) * monthsPerTerm);
+		const endMonthIndex = Math.floor(termNumber * monthsPerTerm) - 1;
+		
+		// Handle edge case where end month goes beyond array length
+		const safeEndMonthIndex = Math.min(endMonthIndex, months.length - 1);
+		
+		const startMonth = months[startMonthIndex];
+		const endMonth = months[safeEndMonthIndex];
+		
+		// If same month (very short terms), show just one month
+		if (startMonth === endMonth) {
+			return startMonth;
+		}
+		
+		return `${startMonth} - ${endMonth}`;
+	}
+
+	/**
+	 * Get terms per year for a specific course in the selected year
+	 */
+	function getTermsPerYear(courseId: string): number {
+		return FeeStructureService.getTermsPerYear(courseId, selectedYear, feeStructures);
+	}
 	
 	function handleViewModeChange(mode: 'by-course' | 'by-year') {
 		viewMode = mode;
@@ -228,7 +268,7 @@
 								<div>
 									<h2 class="card-title text-xl">{courseInfo?.name || courseId}</h2>
 									<div class="flex gap-4 text-sm text-base-content/70">
-										<span>Terms per year: {courseInfo?.termsPerYear || 'N/A'}</span>
+										<span>Terms per year: {getTermsPerYear(courseId) || 'N/A'}</span>
 										{#if courseFeeStructures.length > 0}
 											<span>Year: {courseFeeStructures[0].year}</span>
 										{/if}
@@ -249,15 +289,23 @@
 									<thead>
 										<tr>
 											<th>Term</th>
+											<th>Duration</th>
 											<th>Fee Amount</th>
 											<th>Status</th>
 										</tr>
 									</thead>
 									<tbody>
 										{#each courseFeeStructures as feeStructure}
+											{@const courseInfo = getCourseInfo(feeStructure.course.id)}
+											{@const termsPerYear = getTermsPerYear(feeStructure.course.id)}
 											<tr>
 												<td>
 													<div class="font-medium">Term {feeStructure.term}</div>
+												</td>
+												<td>
+													<div class="text-sm text-base-content/70">
+														{termsPerYear > 0 ? getTermMonthRange(feeStructure.term, termsPerYear) : 'N/A'}
+													</div>
 												</td>
 												<td>
 													<div class="font-semibold">₹{feeStructure.amount.toLocaleString()}</div>
