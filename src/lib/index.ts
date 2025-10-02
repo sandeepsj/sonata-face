@@ -9,3 +9,4 @@ export { API_CONFIG, ApiError } from './api/config.js';
 
 // Export stores
 export { studentStore } from './stores/studentStore.js';
+export { currentStudentStore } from './stores/currentStudentStore.js';

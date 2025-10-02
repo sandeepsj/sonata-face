@@ -2,11 +2,20 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Receipt } from 'lucide-svelte';
+	import { currentStudentStore } from '$lib';
 	import type { LayoutData } from './$types';
 
 	// Data from load function
 	export let data: LayoutData;
 	$: student = data.student;
+
+	// Initialize store with loaded data
+	$: if (student) {
+		currentStudentStore.setStudent(student);
+	}
+
+	// Subscribe to current student store
+	$: currentStudentState = $currentStudentStore;
 
 	// Get current path for navigation
 	$: studentId = $page.params.id;

@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Calendar, Phone, MapPin, GraduationCap, FileText, School } from 'lucide-svelte';
-	import type { Student } from '$lib';
-    import type { LayoutData } from './$types';
+	import { currentStudentStore, type Student } from '$lib';
 
-	// Props from layout
-    export let data: LayoutData;
-	export let student: Student = data.student;
+	// Get current student from store
+	$: currentStudentState = $currentStudentStore;
+	$: student = currentStudentState.student;
 
 	// Format date helper
 	function formatDate(dateString: string | undefined): string {
