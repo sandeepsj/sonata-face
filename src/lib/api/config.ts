@@ -5,6 +5,7 @@ export const API_CONFIG = {
 		STUDENTS: '/api/students',
 		COURSES: '/api/courses',
 		FEE_STRUCTURES: '/api/fee-structures',
+		STUDENT_SESSIONS: '/api/student-sessions',
 		REPORTS: '/api/reports',
 	},
 	DEFAULT_PAGE_SIZE: 10,
@@ -39,8 +40,19 @@ export async function apiRequest<T>(
 		});
 
 		if (!response.ok) {
+			// Try to get the error message from response body
+			let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+			try {
+				const errorBody = await response.json();
+				if (errorBody.message) {
+					errorMessage = errorBody.message;
+				}
+			} catch {
+				// If parsing JSON fails, use the default message
+			}
+			
 			throw new ApiError(
-				`HTTP ${response.status}: ${response.statusText}`,
+				errorMessage,
 				response.status,
 				response.statusText
 			);

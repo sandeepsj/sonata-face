@@ -25,6 +25,7 @@
 	const navigationItems = [
 		{ path: '', label: 'Overview', icon: User },
 		{ path: '/edit', label: 'Edit Details', icon: Edit },
+		{ path: '/sessions', label: 'Sessions', icon: BookOpen },
 		{ path: '/courses', label: 'Courses', icon: BookOpen, disabled: true },
 		{ path: '/payments', label: 'Payment History', icon: Receipt, disabled: true },
 		{ path: '/timeline', label: 'Timeline', icon: Clock, disabled: true },
