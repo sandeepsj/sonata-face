@@ -4,6 +4,7 @@ export const API_CONFIG = {
 	ENDPOINTS: {
 		STUDENTS: '/api/students',
 		COURSES: '/api/courses',
+		FEE_STRUCTURES: '/api/fee-structures',
 		REPORTS: '/api/reports',
 	},
 	DEFAULT_PAGE_SIZE: 10,
