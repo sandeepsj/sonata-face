@@ -65,7 +65,7 @@ export class StudentService {
 	/**
 	 * Create a new student
 	 */
-	static async createStudent(student: Omit<Student, 'admissionId'>): Promise<Student> {
+	static async createStudent(student: Omit<Student, 'admissionNo'>): Promise<Student> {
 		const endpoint = API_CONFIG.ENDPOINTS.STUDENTS;
 		return apiRequest<Student>(endpoint, {
 			method: 'POST',

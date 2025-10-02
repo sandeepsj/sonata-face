@@ -242,7 +242,7 @@
 		</div>
 		
 		<div class="flex items-center space-x-4">
-			<button class="btn btn-primary">
+			<button class="btn btn-primary" on:click={() => goto('/students/add')}>
 				<Users class="w-4 h-4 mr-2" />
 				Add Student
 			</button>
