@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { CourseService, FeeStructureService, type Course, type FeeStructure } from '$lib';
+	import { FeeStructureService, feeStructureStore, type Course, type FeeStructure } from '$lib';
 	
 	// Component state
-	let courses: Course[] = [];
 	let feeStructures: FeeStructure[] = [];
 	let loading = true;
 	let error = '';
+	
+	// Subscribe to fee structure store
+	$: storeState = $feeStructureStore;
 	
 	// View state
 	let selectedYear: number;
@@ -23,33 +24,60 @@
 	// Set default to current year
 	selectedYear = currentYear;
 	
-	// Computed values
-	$: uniqueCourseIds = FeeStructureService.getUniqueCoursesFromFeeStructures(feeStructures);
+	// Computed values - extract unique courses from loaded fee structures
+	$: uniqueCourses = getUniqueCoursesFromFeeStructures(feeStructures);
 	
 	// Filter fee structures based on selections
-	$: filteredFeeStructures = filterFeeStructures(feeStructures, viewMode, selectedYear, selectedCourse);
-	$: groupedFeeStructures = FeeStructureService.groupFeeStructuresByCourse(filteredFeeStructures);
+	$: filteredFeeStructures = filterFeeStructures(feeStructures, viewMode, selectedCourse);
+	$: groupedFeeStructures = groupFeeStructuresByCourse(filteredFeeStructures);
 	
+	/**
+	 * Filter fee structures based on view mode and selected course
+	 */
 	function filterFeeStructures(
 		structures: FeeStructure[], 
-		mode: string, 
-		year: number, 
-		course: string | null
+		mode: 'by-course' | 'by-year', 
+		courseId: string | null
 	): FeeStructure[] {
-		let filtered = [...structures];
-		
-		// Always filter by year since we only have year-based API
-		filtered = filtered.filter(fs => fs.year === year);
-		
-		if (mode === 'by-course' && course) {
-			filtered = filtered.filter(fs => fs.course.id === course);
+		// If in 'by-course' mode and a specific course is selected, filter by that course
+		if (mode === 'by-course' && courseId) {
+			return structures.filter(fs => fs.course.id === courseId);
 		}
-		
-		return filtered;
+		// Otherwise, return all structures (show all courses for the selected year)
+		return structures;
 	}
 	
-	function getCourseInfo(courseId: string): Course | undefined {
-		return courses.find(c => c.id === courseId);
+	/**
+	 * Extract unique courses from fee structures
+	 * Returns array of Course objects with id and name
+	 */
+	function getUniqueCoursesFromFeeStructures(structures: FeeStructure[]): Course[] {
+		const coursesMap = new Map<string, Course>();
+		structures.forEach(fs => {
+			if (!coursesMap.has(fs.course.id)) {
+				coursesMap.set(fs.course.id, fs.course);
+			}
+		});
+		return Array.from(coursesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+	}
+	
+	function groupFeeStructuresByCourse(structures: FeeStructure[]): Map<string, FeeStructure[]> {
+		const grouped = new Map<string, FeeStructure[]>();
+		
+		structures.forEach(fs => {
+			const courseId = fs.course.id;
+			if (!grouped.has(courseId)) {
+				grouped.set(courseId, []);
+			}
+			grouped.get(courseId)!.push(fs);
+		});
+		
+		// Sort each group by term
+		grouped.forEach(courseFeatures => {
+			courseFeatures.sort((a, b) => a.term - b.term);
+		});
+		
+		return grouped;
 	}
 
 	/**
@@ -110,7 +138,8 @@
 			loading = true;
 			error = '';
 			
-			const feeStructuresData = await FeeStructureService.getFeeStructuresByYear(year);
+			// Use fee structure store instead of direct API call
+			const feeStructuresData = await feeStructureStore.getByYear(year);
 			feeStructures = feeStructuresData;
 			
 		} catch (err) {
@@ -125,27 +154,7 @@
 	$: if (selectedYear) {
 		loadFeeStructuresForYear(selectedYear);
 	}
-	
-	async function loadData() {
-		try {
-			loading = true;
-			error = '';
-			
-			// Only load courses - fee structures will be loaded reactively based on selectedYear
-			const coursesData = await CourseService.getCourses();
-			courses = coursesData;
-			
-		} catch (err) {
-			console.error('Error loading courses:', err);
-			error = err instanceof Error ? err.message : 'Failed to load course data';
-		} finally {
-			loading = false;
-		}
-	}
-	
-	onMount(() => {
-		loadData();
-	});
+
 </script>
 
 <svelte:head>
@@ -211,10 +220,9 @@
 							bind:value={selectedCourse}
 						>
 							<option value={null}>All courses</option>
-							{#each uniqueCourseIds as courseId}
-								{@const courseInfo = getCourseInfo(courseId)}
-								<option value={courseId}>
-									{courseInfo?.name || courseId}
+							{#each uniqueCourses as course}
+								<option value={course.id}>
+									{course.name}
 								</option>
 							{/each}
 						</select>
@@ -258,7 +266,7 @@
 			<!-- Course Fee Structure Cards -->
 			<div class="grid gap-6">
 				{#each Array.from(groupedFeeStructures.entries()) as [courseId, courseFeeStructures]}
-					{@const courseInfo = getCourseInfo(courseId)}
+					{@const courseInfo = courseFeeStructures[0]?.course}
 					{@const yearlyFee = FeeStructureService.calculateYearlyFee(courseFeeStructures)}
 					
 					<div class="card bg-base-100 shadow-lg">
@@ -296,7 +304,6 @@
 									</thead>
 									<tbody>
 										{#each courseFeeStructures as feeStructure}
-											{@const courseInfo = getCourseInfo(feeStructure.course.id)}
 											{@const termsPerYear = getTermsPerYear(feeStructure.course.id)}
 											<tr>
 												<td>

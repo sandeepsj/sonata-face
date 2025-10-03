@@ -16,6 +16,8 @@
 		type FeeDuesTrackerDTO,
 		DuesStatus
 	} from '$lib';
+	import PaymentModal from './PaymentModal.svelte';
+	import AdditionalPaymentModal from './AdditionalPaymentModal.svelte';
 
 	// Get student ID from URL
 	$: studentId = Number($page.params.id);
@@ -24,6 +26,11 @@
 	$: currentStudentState = $currentStudentStore;
 	$: student = currentStudentState.student;
 	$: dues = currentStudentState.dues;
+
+	// Modal states
+	let paymentModalOpen = false;
+	let additionalPaymentModalOpen = false;
+	let selectedDue: FeeDuesTrackerDTO | null = null;
 
 	// Load dues on mount
 	onMount(() => {
@@ -103,16 +110,25 @@
 		return false;
 	}
 
-	// Handle pay button click (Phase 2 implementation)
+	// Handle pay button click (opens payment modal)
 	function handlePayDue(due: FeeDuesTrackerDTO) {
-		// TODO: Phase 2 - Implement payment flow
-		alert(`Payment functionality coming in Phase 2!\nDue: ${due.courseName} - ${formatCurrency(due.dueAmount)}`);
+		selectedDue = due;
+		paymentModalOpen = true;
 	}
 
-	// Handle additional payment button click (Phase 2 implementation)
+	// Handle additional payment button click (opens additional payment modal)
 	function handleAdditionalPayment() {
-		// TODO: Phase 2 - Implement additional payment flow
-		alert('Additional payment functionality coming in Phase 2!');
+		additionalPaymentModalOpen = true;
+	}
+
+	// Handle modal close events
+	function handlePaymentModalClose() {
+		paymentModalOpen = false;
+		selectedDue = null;
+	}
+
+	function handleAdditionalPaymentModalClose() {
+		additionalPaymentModalOpen = false;
 	}
 </script>
 
@@ -385,3 +401,18 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Payment Modals -->
+<PaymentModal 
+	bind:isOpen={paymentModalOpen}
+	{studentId}
+	due={selectedDue}
+	on:close={handlePaymentModalClose}
+/>
+
+<AdditionalPaymentModal 
+	bind:isOpen={additionalPaymentModalOpen}
+	{studentId}
+	studentName={student?.studentName || ''}
+	on:close={handleAdditionalPaymentModalClose}
+/>

@@ -30,7 +30,7 @@ export class FeeDuesService {
 	 * Create a new payment
 	 */
 	static async createPayment(paymentRequest: PaymentCreateRequest): Promise<any> {
-		if (!paymentRequest.studentId || !paymentRequest.amount) {
+		if (!paymentRequest.studentId || !paymentRequest.amountPaid) {
 			throw new ApiError('Student ID and amount are required');
 		}
 
