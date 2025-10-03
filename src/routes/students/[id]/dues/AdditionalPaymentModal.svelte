@@ -64,11 +64,19 @@
 		error = '';
 
 		try {
+			// Filter valid discounts
+			const validDiscounts = discounts.length > 0 
+				? discounts.filter(d => d.discountAmount > 0 && d.label.trim() !== '') 
+				: undefined;
+
+			// Calculate net amount (amount paid after discounts)
+			const netAmount = calculateNetAmount(amountPaid, validDiscounts);
+
 			const paymentRequest: PaymentCreateRequest = {
 				studentId,
 				termId: null, // null for additional payments
-				amountPaid,
-				discounts: discounts.length > 0 ? discounts.filter(d => d.discountAmount > 0 && d.label.trim() !== '') : undefined,
+				amountPaid: netAmount, // Send net amount (actual amount collected)
+				discounts: validDiscounts,
 				label: label || undefined,
 				remarks: remarks || undefined,
 				date: new Date(date).toISOString()

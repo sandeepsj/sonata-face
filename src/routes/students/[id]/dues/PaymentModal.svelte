@@ -74,11 +74,19 @@
 				throw new Error(`Fee structure ID not found for ${due!.courseName} - Term ${due!.termNumber}, ${due!.termYear}`);
 			}
 
+			// Filter valid discounts
+			const validDiscounts = discounts.length > 0 
+				? discounts.filter(d => d.discountAmount > 0 && d.label.trim() !== '') 
+				: undefined;
+
+			// Calculate net amount (amount paid after discounts)
+			const netAmount = calculateNetAmount(amountPaid, validDiscounts);
+
 			const paymentRequest: PaymentCreateRequest = {
 				studentId,
 				termId,
-				amountPaid,
-				discounts: discounts.length > 0 ? discounts.filter(d => d.discountAmount > 0 && d.label.trim() !== '') : undefined,
+				amountPaid: netAmount, // Send net amount (actual amount collected)
+				discounts: validDiscounts,
 				courseName: due!.courseName,
 				label: label || undefined,
 				remarks: remarks || undefined,

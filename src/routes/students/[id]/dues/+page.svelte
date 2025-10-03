@@ -47,9 +47,20 @@
 	}
 
 	// Filter dues by status
-	$: pendingDues = dues.data.filter(due => due.status === DuesStatus.DUE || due.status === DuesStatus.OVERDUE);
+	$: pendingDues = dues.data.filter(due => 
+		due.status === DuesStatus.DUE || 
+		due.status === DuesStatus.OVERDUE || 
+		due.status === DuesStatus.PARTIALLY_PAID
+	);
 	$: paidDues = dues.data.filter(due => due.status === DuesStatus.PAID);
-	$: totalDueAmount = pendingDues.reduce((sum, due) => sum + due.dueAmount, 0);
+	$: partiallyPaidDues = dues.data.filter(due => due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL);
+	
+	// Separate current/past dues from future dues
+	$: currentAndPastDues = pendingDues.filter(due => !isFutureDue(due));
+	$: futureDues = pendingDues.filter(due => isFutureDue(due));
+	
+	// Only count current/past dues in the total (future dues are less urgent)
+	$: totalDueAmount = currentAndPastDues.reduce((sum, due) => sum + due.dueAmount, 0);
 
 	// Format currency
 	function formatCurrency(amount: number): string {
@@ -82,29 +93,73 @@
 			case DuesStatus.PAID:
 				return 'badge-success';
 			case DuesStatus.PARTIAL:
+			case DuesStatus.PARTIALLY_PAID:
 				return 'badge-info';
 			default:
 				return 'badge-ghost';
 		}
 	}
 
-	// Check if due is overdue (since API doesn't provide dueDate, we'll use createdAt + some logic)
-	function isOverdue(due: FeeDuesTrackerDTO): boolean {
-		// For now, we'll consider dues overdue if they're from previous year or more than 3 months old
+	/**
+	 * Determine which term we're currently in based on today's date
+	 * Assumes Term 1 starts in January and terms are evenly distributed
+	 */
+	function getCurrentTerm(termsPerYear: number): { year: number; term: number } {
 		const currentDate = new Date();
 		const currentYear = currentDate.getFullYear();
-		const currentMonth = currentDate.getMonth() + 1; // 0-indexed
+		const currentMonth = currentDate.getMonth() + 1; // 1-12
 		
-		// If due is from previous year, it's overdue
-		if (due.termYear < currentYear) {
+		// Calculate which term we're in (each term covers 12/termsPerYear months)
+		const monthsPerTerm = 12 / termsPerYear;
+		const currentTerm = Math.ceil(currentMonth / monthsPerTerm);
+		
+		return { year: currentYear, term: Math.min(currentTerm, termsPerYear) };
+	}
+	
+	/**
+	 * Check if a due is for a future term (hasn't come yet)
+	 */
+	function isFutureDue(due: FeeDuesTrackerDTO): boolean {
+		// Get total number of terms per year for this course
+		// We'll assume 4 terms by default if we can't determine
+		const termsPerYear = 4; // You can make this dynamic based on course if needed
+		
+		const current = getCurrentTerm(termsPerYear);
+		
+		// If due is from future year, it's a future due
+		if (due.termYear > current.year) {
 			return true;
 		}
 		
-		// If same year, check if term is significantly behind current time
-		if (due.termYear === currentYear) {
-			// Rough estimation: term 1 = Jan-Mar, term 2 = Apr-Jun, term 3 = Jul-Sep, term 4 = Oct-Dec
-			const termEndMonth = due.termNumber * 3;
-			return currentMonth > termEndMonth + 1; // 1 month grace period
+		// If same year but future term, it's a future due
+		if (due.termYear === current.year && due.termNumber > current.term) {
+			return true;
+		}
+		
+		return false;
+	}
+	
+	/**
+	 * Check if due is overdue (past due date)
+	 */
+	function isOverdue(due: FeeDuesTrackerDTO): boolean {
+		// Don't mark future dues as overdue
+		if (isFutureDue(due)) {
+			return false;
+		}
+		
+		const termsPerYear = 4;
+		const current = getCurrentTerm(termsPerYear);
+		
+		// If due is from previous year, it's overdue
+		if (due.termYear < current.year) {
+			return true;
+		}
+		
+		// If same year, check if the term is past (but not current term)
+		if (due.termYear === current.year) {
+			// If it's before the current term, it's overdue
+			return due.termNumber < current.term;
 		}
 		
 		return false;
@@ -194,17 +249,23 @@
 	{#if !dues.loading && !dues.error}
 		<!-- Summary Cards -->
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-			<!-- Total Due Amount -->
+			<!-- Total Due Amount (Current & Past Only) -->
 			<div class="stat bg-base-100 rounded-lg shadow-sm">
 				<div class="stat-figure text-error">
 					<DollarSign class="w-8 h-8" />
 				</div>
-				<div class="stat-title">Total Due</div>
+				<div class="stat-title">Current Due Amount</div>
 				<div class="stat-value text-error text-2xl">
 					{formatCurrency(totalDueAmount)}
 				</div>
 				<div class="stat-desc">
-					{pendingDues.length} pending due{pendingDues.length !== 1 ? 's' : ''}
+					{currentAndPastDues.length} pending due{currentAndPastDues.length !== 1 ? 's' : ''}
+					{#if partiallyPaidDues.length > 0}
+						<span class="text-info">({partiallyPaidDues.length} partial)</span>
+					{/if}
+					{#if futureDues.length > 0}
+						<span class="text-base-content/50">+ {futureDues.length} future</span>
+					{/if}
 				</div>
 			</div>
 
@@ -229,7 +290,7 @@
 				</div>
 				<div class="stat-title">Overdue</div>
 				<div class="stat-value text-warning text-2xl">
-					{pendingDues.filter(due => isOverdue(due)).length}
+					{currentAndPastDues.filter(due => isOverdue(due)).length}
 				</div>
 				<div class="stat-desc">
 					Past due date
@@ -238,12 +299,12 @@
 		</div>
 
 		<!-- Pending Dues -->
-		{#if pendingDues.length > 0}
+		{#if currentAndPastDues.length > 0}
 			<div class="card bg-base-100 shadow-sm">
 				<div class="card-body">
 					<h2 class="card-title text-lg mb-4 flex items-center">
 						<AlertCircle class="w-5 h-5 mr-2 text-warning" />
-						Pending Dues ({pendingDues.length})
+						Current & Pending Dues ({currentAndPastDues.length})
 					</h2>
 					
 					<div class="overflow-x-auto">
@@ -259,8 +320,11 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each pendingDues as due}
-									<tr class:bg-warning={isOverdue(due) && due.status !== DuesStatus.PAID}>
+								{#each currentAndPastDues as due}
+									<tr 
+										class:bg-error={isOverdue(due) && due.status !== DuesStatus.PAID && due.status !== DuesStatus.PARTIALLY_PAID && due.status !== DuesStatus.PARTIAL} 
+										class:bg-opacity-10={isOverdue(due)}
+									>
 										<td>
 											<div class="flex items-center space-x-2">
 												<Book class="w-4 h-4 text-primary" />
@@ -274,9 +338,18 @@
 											</div>
 										</td>
 										<td>
-											<span class="font-bold text-lg">
-												{formatCurrency(due.dueAmount)}
-											</span>
+											<div>
+												{#if due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL}
+													<span class="font-bold text-lg text-info">
+														{formatCurrency(due.dueAmount)}
+													</span>
+													<div class="text-xs text-base-content/60">Remaining</div>
+												{:else}
+													<span class="font-bold text-lg">
+														{formatCurrency(due.dueAmount)}
+													</span>
+												{/if}
+											</div>
 										</td>
 										<td>
 											<div class="flex items-center space-x-2">
@@ -288,7 +361,7 @@
 										</td>
 										<td>
 											<div class="badge {getStatusStyle(due.status)}">
-												{due.status}
+												{due.status === DuesStatus.PARTIALLY_PAID ? 'PARTIAL' : due.status}
 											</div>
 											{#if isOverdue(due)}
 												<div class="badge badge-error badge-sm mt-1">
@@ -302,7 +375,7 @@
 												on:click={() => handlePayDue(due)}
 											>
 												<CreditCard class="w-4 h-4 mr-1" />
-												Pay Now
+												{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay Remaining' : 'Pay Now'}
 											</button>
 										</td>
 									</tr>
@@ -312,8 +385,96 @@
 					</div>
 				</div>
 			</div>
-		{:else}
-			<!-- No Pending Dues -->
+		{/if}
+
+		<!-- Future Dues (Less Prominent) -->
+		{#if futureDues.length > 0}
+			<div class="card bg-base-100 shadow-sm opacity-60">
+				<div class="card-body">
+					<h2 class="card-title text-lg mb-4 flex items-center text-base-content/60">
+						<Clock class="w-5 h-5 mr-2" />
+						Upcoming Dues ({futureDues.length})
+						<span class="badge badge-ghost badge-sm">Future Terms</span>
+					</h2>
+					
+					<div class="overflow-x-auto">
+						<table class="table table-zebra">
+							<thead>
+								<tr class="text-base-content/60">
+									<th>Course</th>
+									<th>Term</th>
+									<th>Amount Due</th>
+									<th>Created Date</th>
+									<th>Status</th>
+									<th>Actions</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each futureDues as due}
+									<tr class="text-base-content/60">
+										<td>
+											<div class="flex items-center space-x-2">
+												<Book class="w-4 h-4 opacity-50" />
+												<span>{due.courseName}</span>
+											</div>
+										</td>
+										<td>
+											<div class="text-sm">
+												<div>Year {due.termYear}</div>
+												<div class="text-base-content/50">Term {due.termNumber}</div>
+											</div>
+										</td>
+										<td>
+											<div>
+												{#if due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL}
+													<span class="font-semibold text-info">
+														{formatCurrency(due.dueAmount)}
+													</span>
+													<div class="text-xs text-base-content/50">Remaining</div>
+												{:else}
+													<span class="font-semibold">
+														{formatCurrency(due.dueAmount)}
+													</span>
+												{/if}
+											</div>
+										</td>
+										<td>
+											<div class="flex items-center space-x-2">
+												<Calendar class="w-4 h-4 opacity-50" />
+												<span>
+													{formatDate(due.createdAt)}
+												</span>
+											</div>
+										</td>
+										<td>
+											<div class="badge badge-ghost badge-sm">
+												{due.status === DuesStatus.PARTIALLY_PAID ? 'PARTIAL' : due.status}
+											</div>
+										</td>
+										<td>
+											<button 
+												class="btn btn-outline btn-sm opacity-70"
+												on:click={() => handlePayDue(due)}
+											>
+												<CreditCard class="w-4 h-4 mr-1" />
+												{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay Remaining' : 'Pay Advance'}
+											</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					<p class="text-sm text-base-content/50 mt-2">
+						<AlertCircle class="w-4 h-4 inline mr-1" />
+						These are dues for upcoming terms. You can pay them in advance if needed.
+					</p>
+				</div>
+			</div>
+		{/if}
+
+		<!-- No Pending Dues Message -->
+		{#if currentAndPastDues.length === 0 && futureDues.length === 0}
 			<div class="card bg-base-100 shadow-sm">
 				<div class="card-body text-center py-12">
 					<CheckCircle class="w-16 h-16 mx-auto text-success mb-4" />
@@ -347,8 +508,7 @@
 								<tr>
 									<th>Course</th>
 									<th>Term</th>
-									<th>Amount Paid</th>
-									<th>Created Date</th>
+									<th>Payment Date</th>
 									<th>Status</th>
 								</tr>
 							</thead>
@@ -368,14 +528,9 @@
 											</div>
 										</td>
 										<td>
-											<span class="font-bold text-success">
-												{formatCurrency(due.dueAmount)}
-											</span>
-										</td>
-										<td>
 											<div class="flex items-center space-x-2">
 												<Calendar class="w-4 h-4" />
-												<span>{formatDate(due.createdAt)}</span>
+												<span>{formatDate(due.updatedAt)}</span>
 											</div>
 										</td>
 										<td>

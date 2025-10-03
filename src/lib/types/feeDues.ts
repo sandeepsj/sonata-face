@@ -11,7 +11,6 @@ export interface FeeDuesTrackerDTO {
 	termNumber: number;
 	dueAmount: number;
 	status: DuesStatusType;
-	remarks?: string | null;
 	createdAt: string;
 	updatedAt: string;
 	[key: string]: any; // Allow additional fields
@@ -22,6 +21,7 @@ export const DuesStatus = {
 	DUE: 'DUE',
 	PAID: 'PAID',
 	PARTIAL: 'PARTIAL',
+	PARTIALLY_PAID: 'PARTIALLY_PAID',
 	OVERDUE: 'OVERDUE'
 } as const;
 
