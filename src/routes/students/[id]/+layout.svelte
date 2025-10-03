@@ -29,7 +29,7 @@
 		{ path: '/courses', label: 'Courses', icon: BookOpen, disabled: true },
 		{ path: '/payments', label: 'Payment History', icon: Receipt, disabled: true },
 		{ path: '/timeline', label: 'Timeline', icon: Clock, disabled: true },
-		{ path: '/fees', label: 'Pay Fees', icon: CreditCard, disabled: true },
+		{ path: '/dues', label: 'Pay Fees', icon: CreditCard },
 	];
 
 	$: activeNavItems = navigationItems.map(item => ({

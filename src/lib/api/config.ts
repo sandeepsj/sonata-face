@@ -7,6 +7,8 @@ export const API_CONFIG = {
 		FEE_STRUCTURES: '/api/fee-structures',
 		STUDENT_SESSIONS: '/api/student-sessions',
 		REPORTS: '/api/reports',
+		DUES: '/api/dues',
+		PAYMENTS: '/api/payments',
 	},
 	DEFAULT_PAGE_SIZE: 10,
 } as const;
