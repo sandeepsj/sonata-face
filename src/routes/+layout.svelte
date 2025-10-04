@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
-	import { BookOpen, User, Menu, Sun, Moon } from 'lucide-svelte';
+	import { User, Menu, Sun, Moon } from 'lucide-svelte';
 
 	let { children } = $props();
 	let mobileMenuOpen = $state(false);
@@ -79,8 +79,9 @@
 				<li><a href="/reports">Reports</a></li>
 			</ul>
 		</div>
-		<BookOpen class="w-8 h-8 text-primary mr-2" />
-		<a href="/" class="btn btn-ghost text-xl">Revathi Arts and Music School</a>
+		<a href="/" class="btn btn-ghost">
+			<img src="/company-logo-minimal.svg" alt="Revathi Arts and Music School" class="h-8" />
+		</a>
 	</div>
 	
 	<div class="navbar-center hidden md:flex">
