@@ -60,7 +60,19 @@ export async function apiRequest<T>(
 			);
 		}
 
-		return await response.json();
+		// Get raw text first to log it
+		const rawText = await response.text();
+		console.log('[API] Raw response for', endpoint, ':', rawText.substring(0, 500));
+		
+		try {
+			return JSON.parse(rawText);
+		} catch (jsonError) {
+			console.error('[API] JSON parse error for', endpoint);
+			console.error('[API] Raw response:', rawText);
+			throw new ApiError(
+				`Invalid JSON response: ${jsonError instanceof Error ? jsonError.message : 'Unknown error'}`
+			);
+		}
 	} catch (error) {
 		if (error instanceof ApiError) {
 			throw error;

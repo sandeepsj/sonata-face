@@ -6,6 +6,9 @@ export type { Course, FeeStructure, CourseWithFees, FeeStructureSearchParams } f
 export type { StudentSession, CreateStudentSessionRequest, StudentSessionSearchParams, StudentSessionWithStatus } from './types/studentSession.js';
 export type { FeeDuesTrackerDTO, DuesStatusType, PaymentTypeType, PaymentCreateRequest, PaymentDiscount, FeeDuesResponse, FeeDuesPageState } from './types/feeDues.js';
 export { DuesStatus, PaymentType, calculateNetAmount, calculateTotalDiscount, validateDiscounts } from './types/feeDues.js';
+export type { Payment, PaymentStudent, PaymentFeeStructure, PaymentHistoryResponse } from './types/payment.js';
+export type { PaymentDiscount as PaymentDiscountDetail, PaymentTypeType as ApiPaymentType } from './types/payment.js';
+export { PaymentTypeEnum, calculateAmountCleared, formatPaymentType } from './types/payment.js';
 
 // Export API services
 export { StudentService } from './api/studentService.js';
@@ -13,6 +16,7 @@ export { CourseService } from './api/courseService.js';
 export { FeeStructureService } from './api/feeStructureService.js';
 export { StudentSessionService } from './api/studentSessionService.js';
 export { FeeDuesService } from './api/feeDuesService.js';
+export { PaymentService } from './api/paymentService.js';
 export { API_CONFIG, ApiError } from './api/config.js';
 
 // Export stores

@@ -1,7 +1,9 @@
 import { writable, get } from 'svelte/store';
 import type { Student } from '../types/student.js';
 import type { FeeDuesTrackerDTO } from '../types/feeDues.js';
+import type { Payment } from '../types/payment.js';
 import { FeeDuesService } from '../api/feeDuesService.js';
+import { PaymentService } from '../api/paymentService.js';
 
 interface CurrentStudentState {
 	student: Student | null;
@@ -13,6 +15,12 @@ interface CurrentStudentState {
 		error: string | null;
 		lastFetched: Date | null;
 	};
+	payments: {
+		data: Payment[];
+		loading: boolean;
+		error: string | null;
+		lastFetched: Date | null;
+	};
 }
 
 const initialState: CurrentStudentState = {
@@ -20,6 +28,12 @@ const initialState: CurrentStudentState = {
 	loading: false,
 	error: null,
 	dues: {
+		data: [],
+		loading: false,
+		error: null,
+		lastFetched: null
+	},
+	payments: {
 		data: [],
 		loading: false,
 		error: null,
@@ -166,6 +180,126 @@ function createCurrentStudentStore() {
 					lastFetched: null
 				}
 			}));
+		},
+
+		// Payment-related methods
+		async fetchPayments(studentId: number, forceRefresh = false) {
+			console.log('[Store] fetchPayments called for studentId:', studentId, 'forceRefresh:', forceRefresh);
+			
+			// Check if we need to fetch (no data, force refresh, or data is stale)
+			const currentState = get(store);
+			const shouldFetch = forceRefresh || 
+				currentState.payments.data.length === 0 || 
+				!currentState.payments.lastFetched ||
+				(Date.now() - currentState.payments.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
+
+			console.log('[Store] Should fetch payments?', shouldFetch, {
+				hasData: currentState.payments.data.length > 0,
+				lastFetched: currentState.payments.lastFetched
+			});
+
+			if (!shouldFetch) {
+				console.log('[Store] Using cached payments, count:', currentState.payments.data.length);
+				return;
+			}
+
+			console.log('[Store] Setting loading state...');
+			update(state => ({
+				...state,
+				payments: {
+					...state.payments,
+					loading: true,
+					error: null
+				}
+			}));
+
+			try {
+				console.log('[Store] Calling PaymentService.getPaymentsByStudentId...');
+				const payments = await PaymentService.getPaymentsByStudentId(studentId);
+				console.log('[Store] Received payments:', payments.length, 'records');
+				
+				update(state => ({
+					...state,
+					payments: {
+						data: payments,
+						loading: false,
+						error: null,
+						lastFetched: new Date()
+					}
+				}));
+				console.log('[Store] Payment data stored successfully');
+			} catch (error) {
+				console.error('[Store] Error fetching payments:', error);
+				const errorMessage = error instanceof Error ? error.message : 'Failed to load payment history';
+				update(state => ({
+					...state,
+					payments: {
+						...state.payments,
+						loading: false,
+						error: errorMessage
+					}
+				}));
+			}
+		},
+
+		// Set payments loading state
+		setPaymentsLoading(loading: boolean) {
+			update(state => ({
+				...state,
+				payments: {
+					...state.payments,
+					loading
+				}
+			}));
+		},
+
+		// Clear payments data
+		clearPayments() {
+			update(state => ({
+				...state,
+				payments: {
+					data: [],
+					loading: false,
+					error: null,
+					lastFetched: null
+				}
+			}));
+		},
+
+		// Helper to get payment details with enriched data from dues
+		getEnrichedPayments() {
+			const currentState = get(store);
+			const { payments, dues } = currentState;
+
+			return payments.data.map(payment => {
+				// If payment has feeStructure, try to find matching due
+				if (payment.feeStructure) {
+					const matchingDue = dues.data.find(due => 
+						due.feeStructureId === payment.feeStructure?.id
+					);
+					
+					if (matchingDue) {
+						return {
+							...payment,
+							enrichedData: {
+								termYear: matchingDue.termYear,
+								termNumber: matchingDue.termNumber,
+								courseName: matchingDue.courseName
+							}
+						};
+					}
+				}
+
+				// For payments without feeStructure or no matching due, use payment's own data
+				return {
+					...payment,
+					enrichedData: {
+						termYear: null,
+						termNumber: null,
+						courseName: payment.courseName || null
+					}
+				};
+			});
 		}
 	};
 }
