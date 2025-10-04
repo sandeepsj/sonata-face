@@ -58,25 +58,21 @@
 				<Menu class="w-5 h-5" />
 			</div>
 			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
-				<li><a href="/">Dashboard</a></li>
 				<li><a href="/students">Students</a></li>
 				<li><a href="/courses">Courses</a></li>
 				<li><a href="/payments">Payments</a></li>
-				<li><a href="/reports">Reports</a></li>
 			</ul>
 		</div>
-		<a href="/" class="btn btn-ghost">
+		<a href="/students" class="btn btn-ghost">
 			<img src="/company-logo-minimal.svg" alt="Revathi Arts and Music School" class="h-8" />
 		</a>
 	</div>
 	
 	<div class="navbar-center hidden md:flex">
 		<ul class="menu menu-horizontal px-1">
-			<li><a href="/">Dashboard</a></li>
 			<li><a href="/students">Students</a></li>
 			<li><a href="/courses">Courses</a></li>
 			<li><a href="/payments">Payments</a></li>
-			<li><a href="/reports">Reports</a></li>
 		</ul>
 	</div>
 	
