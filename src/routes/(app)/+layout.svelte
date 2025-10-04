@@ -61,6 +61,7 @@
 				<li><a href="/">Dashboard</a></li>
 				<li><a href="/students">Students</a></li>
 				<li><a href="/courses">Courses</a></li>
+				<li><a href="/payments">Payments</a></li>
 				<li><a href="/reports">Reports</a></li>
 			</ul>
 		</div>
@@ -74,6 +75,7 @@
 			<li><a href="/">Dashboard</a></li>
 			<li><a href="/students">Students</a></li>
 			<li><a href="/courses">Courses</a></li>
+			<li><a href="/payments">Payments</a></li>
 			<li><a href="/reports">Reports</a></li>
 		</ul>
 	</div>
