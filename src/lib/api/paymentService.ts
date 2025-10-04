@@ -42,4 +42,24 @@ export class PaymentService {
 			throw error;
 		}
 	}
+
+	/**
+	 * Deactivate a payment record
+	 * @param paymentId - The payment ID to deactivate
+	 * @returns The deactivated payment record
+	 */
+	static async deactivatePayment(paymentId: number): Promise<Payment> {
+		try {
+			const response = await apiRequest<Payment>(
+				`/api/payments/${paymentId}/deactivate`,
+				{
+					method: 'PATCH'
+				}
+			);
+			return response;
+		} catch (error) {
+			console.error('Error deactivating payment:', error);
+			throw error;
+		}
+	}
 }
