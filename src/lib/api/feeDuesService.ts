@@ -30,7 +30,8 @@ export class FeeDuesService {
 	 * Create a new payment
 	 */
 	static async createPayment(paymentRequest: PaymentCreateRequest): Promise<any> {
-		if (!paymentRequest.studentId || !paymentRequest.amountPaid) {
+		// Allow amountPaid to be 0 (in case of 100% discount)
+		if (!paymentRequest.studentId || paymentRequest.amountPaid === undefined || paymentRequest.amountPaid === null) {
 			throw new ApiError('Student ID and amount are required');
 		}
 

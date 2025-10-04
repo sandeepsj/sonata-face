@@ -87,10 +87,10 @@ export function validateDiscounts(amount: number, discounts?: PaymentDiscount[])
 		}
 	}
 
-	// Check total discount doesn't exceed amount
+	// Check total discount doesn't exceed amount (allow equal for 100% discount)
 	const totalDiscount = calculateTotalDiscount(discounts);
-	if (totalDiscount >= amount) {
-		return { valid: false, error: 'Total discount cannot be greater than or equal to the payment amount' };
+	if (totalDiscount > amount) {
+		return { valid: false, error: 'Total discount cannot exceed the payment amount' };
 	}
 
 	return { valid: true };

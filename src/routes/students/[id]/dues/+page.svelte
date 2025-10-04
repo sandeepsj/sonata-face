@@ -32,10 +32,11 @@
 	let additionalPaymentModalOpen = false;
 	let selectedDue: FeeDuesTrackerDTO | null = null;
 
-	// Load dues on mount
-	onMount(() => {
+	// Load dues on mount - always force refresh
+	onMount(async () => {
 		if (studentId) {
-			currentStudentStore.fetchDues(studentId);
+			// Force refresh to get latest dues data
+			await currentStudentStore.fetchDues(studentId, true);
 		}
 	});
 
@@ -177,13 +178,23 @@
 	}
 
 	// Handle modal close events
-	function handlePaymentModalClose() {
+	async function handlePaymentModalClose() {
 		paymentModalOpen = false;
 		selectedDue = null;
+		
+		// Refresh dues after payment to show updated status
+		if (studentId) {
+			await currentStudentStore.fetchDues(studentId, true);
+		}
 	}
 
-	function handleAdditionalPaymentModalClose() {
+	async function handleAdditionalPaymentModalClose() {
 		additionalPaymentModalOpen = false;
+		
+		// Refresh dues after payment to show updated status
+		if (studentId) {
+			await currentStudentStore.fetchDues(studentId, true);
+		}
 	}
 </script>
 

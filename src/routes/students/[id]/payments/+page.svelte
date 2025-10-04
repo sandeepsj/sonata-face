@@ -63,15 +63,13 @@
 
 		console.log('Fetching payment history for student:', studentData.admissionNo, studentData.studentName);
 
-		// Fetch dues first if not already loaded (needed for enrichment)
-		if (dues.length === 0) {
-			console.log('Fetching dues for enrichment...');
-			await currentStudentStore.fetchDues(studentData.admissionNo);
-		}
+		// Always force refresh dues on page entry
+		console.log('Fetching dues for enrichment...');
+		await currentStudentStore.fetchDues(studentData.admissionNo, true);
 		
-		// Then fetch payments
+		// Always force refresh payments on page entry
 		console.log('Fetching payments...');
-		await currentStudentStore.fetchPayments(studentData.admissionNo);
+		await currentStudentStore.fetchPayments(studentData.admissionNo, true);
 		console.log('Payments fetched:', $currentStudentStore.payments.data.length);
 	});
 
