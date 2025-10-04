@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Receipt, Settings } from 'lucide-svelte';
+	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Banknote, Settings } from 'lucide-svelte';
 	import { currentStudentStore } from '$lib';
 	import type { LayoutData } from './$types';
 
@@ -26,10 +26,9 @@
 		{ path: '', label: 'Overview', icon: User },
 		{ path: '/edit', label: 'Edit Details', icon: Edit },
 		{ path: '/sessions', label: 'Sessions', icon: BookOpen },
-		{ path: '/courses', label: 'Courses', icon: BookOpen, disabled: true },
-		{ path: '/payments', label: 'Payment History', icon: Receipt },
+		{ path: '/payments', label: 'Payment History', icon: Banknote },
 		{ path: '/manage-payments', label: 'Manage Payments', icon: Settings },
-		{ path: '/timeline', label: 'Timeline', icon: Clock, disabled: true },
+		{ path: '/timeline', label: 'Timeline', icon: Clock },
 		{ path: '/dues', label: 'Pay Fees', icon: CreditCard },
 	];
 
@@ -89,20 +88,21 @@
 						<h3 class="font-semibold text-sm text-base-content/70 mb-3">STUDENT MENU</h3>
 						<ul class="menu p-0 space-y-1">
 							{#each activeNavItems as item}
+								{@const isDisabled = ('disabled' in item && item.disabled) === true}
 								<li>
 									<button
 										class="flex items-center space-x-3 w-full text-left p-3 rounded-lg transition-colors"
 										class:bg-primary={item.active}
 										class:text-primary-content={item.active}
-										class:opacity-50={item.disabled && !item.active}
-										class:cursor-not-allowed={item.disabled}
-										class:hover:bg-base-200={!item.active && !item.disabled}
-										disabled={item.disabled}
-										on:click={() => navigateToTab(item.path, item.disabled)}
+										class:opacity-50={isDisabled && !item.active}
+										class:cursor-not-allowed={isDisabled}
+										class:hover:bg-base-200={!item.active && !isDisabled}
+										disabled={isDisabled}
+										on:click={() => navigateToTab(item.path, isDisabled)}
 									>
 										<svelte:component this={item.icon} class="w-4 h-4" />
 										<span class="text-sm">{item.label}</span>
-										{#if item.disabled}
+										{#if isDisabled}
 											<span class="badge badge-xs badge-outline ml-auto">Soon</span>
 										{/if}
 									</button>

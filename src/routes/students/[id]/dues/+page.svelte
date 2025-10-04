@@ -7,7 +7,7 @@
 		CheckCircle, 
 		Plus, 
 		Calendar, 
-		DollarSign,
+		IndianRupee,
 		Clock,
 		Book
 	} from 'lucide-svelte';
@@ -263,7 +263,7 @@
 			<!-- Total Due Amount (Current & Past Only) -->
 			<div class="stat bg-base-100 rounded-lg shadow-sm">
 				<div class="stat-figure text-error">
-					<DollarSign class="w-8 h-8" />
+					<IndianRupee class="w-8 h-8" />
 				</div>
 				<div class="stat-title">Current Due Amount</div>
 				<div class="stat-value text-error text-2xl">

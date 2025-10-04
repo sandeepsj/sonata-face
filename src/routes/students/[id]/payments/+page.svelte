@@ -5,9 +5,9 @@
 	import { 
 		Loader2, 
 		AlertCircle, 
-		Receipt, 
+		Banknote, 
 		Calendar, 
-		DollarSign, 
+		IndianRupee, 
 		ChevronDown, 
 		ChevronRight,
 		Tag,
@@ -160,7 +160,7 @@
 	<div class="flex items-center justify-between">
 		<div>
 			<h1 class="text-3xl font-bold flex items-center gap-3">
-				<Receipt class="w-8 h-8 text-primary" />
+				<Banknote class="w-8 h-8 text-primary" />
 				Payment History
 			</h1>
 			{#if currentStudent}
@@ -180,7 +180,7 @@
 						<p class="text-primary-content/70 text-sm">Total Payments</p>
 						<p class="text-3xl font-bold">{totalPayments}</p>
 					</div>
-					<Receipt class="w-10 h-10 opacity-70" />
+					<Banknote class="w-10 h-10 opacity-70" />
 				</div>
 			</div>
 		</div>
@@ -192,7 +192,7 @@
 						<p class="text-success-content/70 text-sm">Amount Paid</p>
 						<p class="text-2xl font-bold">{formatCurrency(totalAmountPaid)}</p>
 					</div>
-					<DollarSign class="w-10 h-10 opacity-70" />
+					<IndianRupee class="w-10 h-10 opacity-70" />
 				</div>
 			</div>
 		</div>
@@ -283,7 +283,7 @@
 		{#if filteredPayments.length === 0}
 			<div class="card bg-base-100 shadow-sm">
 				<div class="card-body items-center text-center py-12">
-					<Receipt class="w-16 h-16 text-base-content/30 mb-4" />
+					<Banknote class="w-16 h-16 text-base-content/30 mb-4" />
 					<h3 class="text-xl font-semibold text-base-content/70">No Payment Records</h3>
 					<p class="text-base-content/50">
 						{showInactive 
