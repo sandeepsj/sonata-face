@@ -1,10 +1,18 @@
 <script lang="ts">
-	import { FeeStructureService, feeStructureStore, type Course, type FeeStructure } from '$lib';
+	import { FeeStructureService, feeStructureStore, StudentSessionService, type Course, type FeeStructure, type StudentSession } from '$lib';
+	import { Users, Download } from 'lucide-svelte';
 	
 	// Component state
 	let feeStructures: FeeStructure[] = [];
 	let loading = true;
 	let error = '';
+	
+	// Student session state
+	let expandedCourses = new Set<string>();
+	let studentSessions = new Map<string, StudentSession[]>();
+	let loadingStudents = new Set<string>();
+	let studentSearchYear: number | null = null;
+	let studentSearchTerm: number | null = null;
 	
 	// Subscribe to fee structure store
 	$: storeState = $feeStructureStore;
@@ -155,6 +163,143 @@
 		loadFeeStructuresForYear(selectedYear);
 	}
 
+	/**
+	 * Toggle student list for a course
+	 */
+	async function toggleStudentList(courseId: string, courseName: string) {
+		const key = `${courseId}_${selectedYear}_${studentSearchYear || 'all'}_${studentSearchTerm || 'all'}`;
+		
+		if (expandedCourses.has(key)) {
+			expandedCourses.delete(key);
+			expandedCourses = expandedCourses;
+			return;
+		}
+
+		expandedCourses.add(key);
+		expandedCourses = expandedCourses;
+		
+		// Load student sessions if not already loaded
+		if (!studentSessions.has(key)) {
+			await loadStudentSessions(courseId, courseName, key);
+		}
+	}
+
+	/**
+	 * Load student sessions based on selected filters
+	 */
+	async function loadStudentSessions(courseId: string, courseName: string, cacheKey: string) {
+		try {
+			loadingStudents.add(cacheKey);
+			loadingStudents = loadingStudents;
+			
+			let sessions: StudentSession[] = [];
+			
+			// Call appropriate API based on selected filters
+			if (studentSearchYear !== null && studentSearchTerm !== null) {
+				sessions = await StudentSessionService.getStudentsByCourseYearTerm(
+					courseName, 
+					studentSearchYear, 
+					studentSearchTerm
+				);
+			} else if (studentSearchYear !== null) {
+				sessions = await StudentSessionService.getStudentsByCourseAndYear(
+					courseName, 
+					studentSearchYear
+				);
+			} else {
+				sessions = await StudentSessionService.getStudentsByCourse(courseName);
+			}
+			
+			studentSessions.set(cacheKey, sessions);
+			studentSessions = studentSessions;
+			
+		} catch (err) {
+			console.error('Error loading student sessions:', err);
+			error = err instanceof Error ? err.message : 'Failed to load student sessions';
+		} finally {
+			loadingStudents.delete(cacheKey);
+			loadingStudents = loadingStudents;
+		}
+	}
+
+	/**
+	 * Check if a student session is active
+	 */
+	function isSessionActive(session: StudentSession): boolean {
+		return session.dateOfDisjoining === null || session.dateOfDisjoining === undefined;
+	}
+
+	/**
+	 * Format date for display
+	 */
+	function formatDate(dateString: string | null | undefined): string {
+		if (!dateString) return 'N/A';
+		const date = new Date(dateString);
+		return date.toLocaleDateString('en-GB', { 
+			day: '2-digit', 
+			month: 'short', 
+			year: 'numeric' 
+		});
+	}
+
+	/**
+	 * Apply student search filters
+	 */
+	function applyStudentFilters() {
+		// Clear expanded states and cache when filters change
+		expandedCourses.clear();
+		studentSessions.clear();
+		expandedCourses = expandedCourses;
+		studentSessions = studentSessions;
+	}
+
+	/**
+	 * Reset student search filters
+	 */
+	function resetStudentFilters() {
+		studentSearchYear = null;
+		studentSearchTerm = null;
+		applyStudentFilters();
+	}
+
+	/**
+	 * Download student list as CSV
+	 */
+	function downloadStudentListCSV(courseName: string, sessions: StudentSession[]) {
+		// CSV headers
+		const headers = ['Admission No', 'Student Name', 'Course', 'Date of Joining', 'Date of Disjoining', 'Status'];
+		
+		// CSV rows
+		const rows = sessions.map(session => [
+			session.student.admissionNo || '',
+			session.student.studentName || '',
+			session.course.name || '',
+			formatDate(session.dateOfJoining),
+			isSessionActive(session) ? 'Active' : formatDate(session.dateOfDisjoining),
+			isSessionActive(session) ? 'Active' : 'Inactive'
+		]);
+		
+		// Combine headers and rows
+		const csvContent = [
+			headers.join(','),
+			...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+		].join('\n');
+		
+		// Create and download file
+		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(blob);
+		
+		const fileName = `students_${courseName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+		
+		link.setAttribute('href', url);
+		link.setAttribute('download', fileName);
+		link.style.visibility = 'hidden';
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+	}
+
 </script>
 
 <svelte:head>
@@ -268,6 +413,10 @@
 				{#each Array.from(groupedFeeStructures.entries()) as [courseId, courseFeeStructures]}
 					{@const courseInfo = courseFeeStructures[0]?.course}
 					{@const yearlyFee = FeeStructureService.calculateYearlyFee(courseFeeStructures)}
+					{@const studentKey = `${courseId}_${selectedYear}_${studentSearchYear || 'all'}_${studentSearchTerm || 'all'}`}
+					{@const isExpanded = expandedCourses.has(studentKey)}
+					{@const sessions = studentSessions.get(studentKey) || []}
+					{@const isLoadingStudents = loadingStudents.has(studentKey)}
 					
 					<div class="card bg-base-100 shadow-lg">
 						<div class="card-body">
@@ -330,6 +479,136 @@
 									</tbody>
 								</table>
 							</div>
+
+							<!-- View Students Button -->
+							<div class="card-actions justify-end mt-4">
+								<button 
+									class="btn btn-sm btn-primary"
+									on:click={() => toggleStudentList(courseId, courseInfo?.name || courseId)}
+								>
+									<Users size={16} />
+									{isExpanded ? 'Hide Students' : 'View Students'}
+								</button>
+							</div>
+
+							<!-- Student List Section -->
+							{#if isExpanded}
+								<div class="divider"></div>
+								
+								<!-- Student Filters -->
+								<div class="bg-base-200 p-4 rounded-lg mb-4">
+									<div class="flex flex-wrap gap-4 items-end">
+										<div class="form-control">
+											<label class="label" for="student-year-{courseId}">
+												<span class="label-text">Filter by Year</span>
+											</label>
+											<select 
+												id="student-year-{courseId}"
+												class="select select-bordered select-sm w-full max-w-xs"
+												bind:value={studentSearchYear}
+												on:change={applyStudentFilters}
+											>
+												<option value={null}>All Years</option>
+												{#each availableYears as year}
+													<option value={year}>{year}</option>
+												{/each}
+											</select>
+										</div>
+
+										<div class="form-control">
+											<label class="label" for="student-term-{courseId}">
+												<span class="label-text">Filter by Term</span>
+											</label>
+											<select 
+												id="student-term-{courseId}"
+												class="select select-bordered select-sm w-full max-w-xs"
+												bind:value={studentSearchTerm}
+												on:change={applyStudentFilters}
+												disabled={studentSearchYear === null}
+											>
+												<option value={null}>All Terms</option>
+												{#each Array.from({ length: getTermsPerYear(courseId) || 4 }, (_, i) => i + 1) as term}
+													<option value={term}>Term {term}</option>
+												{/each}
+											</select>
+										</div>
+
+										<button 
+											class="btn btn-outline btn-sm"
+											on:click={resetStudentFilters}
+										>
+											Reset
+										</button>
+
+										{#if sessions.length > 0}
+											<button 
+												class="btn btn-sm btn-success ml-auto"
+												on:click={() => downloadStudentListCSV(courseInfo?.name || courseId, sessions)}
+											>
+												<Download size={16} />
+												Export CSV
+											</button>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Student Table -->
+								{#if isLoadingStudents}
+									<div class="flex justify-center items-center py-8">
+										<span class="loading loading-spinner loading-md"></span>
+									</div>
+								{:else if sessions.length === 0}
+									<div class="alert alert-info">
+										<span>No students found for the selected filters.</span>
+									</div>
+								{:else}
+									<div class="overflow-x-auto">
+										<table class="table table-zebra w-full">
+											<thead>
+												<tr>
+													<th>Admission No</th>
+													<th>Student Name</th>
+													<th>Date of Joining</th>
+													<th>Date of Disjoining</th>
+													<th>Status</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each sessions as session}
+													<tr>
+														<td>
+															<a 
+																href="/students/{session.student.admissionNo}" 
+																class="link link-primary font-medium"
+																target="_blank"
+																rel="noopener noreferrer"
+															>
+																{session.student.admissionNo}
+															</a>
+														</td>
+														<td>{session.student.studentName}</td>
+														<td>{formatDate(session.dateOfJoining)}</td>
+														<td>
+															{isSessionActive(session) ? '-' : formatDate(session.dateOfDisjoining)}
+														</td>
+														<td>
+															<div class="badge badge-sm"
+																 class:badge-success={isSessionActive(session)}
+																 class:badge-neutral={!isSessionActive(session)}
+															>
+																{isSessionActive(session) ? 'Active' : 'Inactive'}
+															</div>
+														</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+										<div class="text-sm text-base-content/70 mt-2">
+											Total: {sessions.length} student{sessions.length !== 1 ? 's' : ''}
+										</div>
+									</div>
+								{/if}
+							{/if}
 						</div>
 					</div>
 				{/each}

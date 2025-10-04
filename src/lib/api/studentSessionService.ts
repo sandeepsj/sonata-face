@@ -211,4 +211,53 @@ export class StudentSessionService {
 
 		return { active, inactive };
 	}
+
+	/**
+	 * Flexible search for student sessions by course, year, and/or term
+	 */
+	static async searchSessions(params: { course?: string; year?: number; termNumber?: number }): Promise<StudentSession[]> {
+		const queryParams = new URLSearchParams();
+		
+		if (params.course) queryParams.append('course', params.course);
+		if (params.year !== undefined && params.year !== null) queryParams.append('year', params.year.toString());
+		if (params.termNumber !== undefined && params.termNumber !== null) queryParams.append('termNumber', params.termNumber.toString());
+
+		const endpoint = `${API_CONFIG.ENDPOINTS.STUDENT_SESSIONS}/search${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+		return apiRequest<StudentSession[]>(endpoint);
+	}
+
+	/**
+	 * Get students by course (all sessions)
+	 */
+	static async getStudentsByCourse(courseName: string): Promise<StudentSession[]> {
+		const encodedCourseName = encodeURIComponent(courseName);
+		const endpoint = `${API_CONFIG.ENDPOINTS.STUDENT_SESSIONS}/students/course/${encodedCourseName}`;
+		return apiRequest<StudentSession[]>(endpoint);
+	}
+
+	/**
+	 * Get students by course and year
+	 */
+	static async getStudentsByCourseAndYear(courseName: string, year: number): Promise<StudentSession[]> {
+		const encodedCourseName = encodeURIComponent(courseName);
+		const endpoint = `${API_CONFIG.ENDPOINTS.STUDENT_SESSIONS}/students/course/${encodedCourseName}/year/${year}`;
+		return apiRequest<StudentSession[]>(endpoint);
+	}
+
+	/**
+	 * Get students by course, year, and term
+	 */
+	static async getStudentsByCourseYearTerm(courseName: string, year: number, termNumber: number): Promise<StudentSession[]> {
+		const encodedCourseName = encodeURIComponent(courseName);
+		const endpoint = `${API_CONFIG.ENDPOINTS.STUDENT_SESSIONS}/students/course/${encodedCourseName}/year/${year}/term/${termNumber}`;
+		return apiRequest<StudentSession[]>(endpoint);
+	}
+
+	/**
+	 * Get students by year and term (all courses)
+	 */
+	static async getStudentsByYearAndTerm(year: number, termNumber: number): Promise<StudentSession[]> {
+		const endpoint = `${API_CONFIG.ENDPOINTS.STUDENT_SESSIONS}/students/year/${year}/term/${termNumber}`;
+		return apiRequest<StudentSession[]>(endpoint);
+	}
 }
