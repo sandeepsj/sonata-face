@@ -9,6 +9,7 @@ export { DuesStatus, PaymentType, calculateNetAmount, calculateTotalDiscount, va
 export type { Payment, PaymentStudent, PaymentFeeStructure, PaymentHistoryResponse } from './types/payment.js';
 export type { PaymentDiscount as PaymentDiscountDetail, PaymentTypeType as ApiPaymentType } from './types/payment.js';
 export { PaymentTypeEnum, calculateAmountCleared, formatPaymentType } from './types/payment.js';
+export type { DuesAggregateFilters, DuesAggregateResponse, CourseAggregate, YearAggregate, TermAggregate, AggregateGroupBy, DuesFilterParams } from './types/duesAggregate.js';
 
 // Export API services
 export { StudentService } from './api/studentService.js';
@@ -17,6 +18,7 @@ export { FeeStructureService } from './api/feeStructureService.js';
 export { StudentSessionService } from './api/studentSessionService.js';
 export { FeeDuesService } from './api/feeDuesService.js';
 export { PaymentService } from './api/paymentService.js';
+export { DuesAggregateService } from './api/duesAggregateService.js';
 export { API_CONFIG, ApiError } from './api/config.js';
 
 // Export stores

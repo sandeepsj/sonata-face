@@ -3,16 +3,19 @@
 export interface FeeDuesTrackerDTO {
 	id: number;
 	studentId: number;
-	studentName: string;
+	studentName?: string;
 	sessionId: number;
 	courseName: string;
 	feeStructureId: number;
 	termYear: number;
 	termNumber: number;
-	dueAmount: number;
+	totalFee: number;
+	amountPaid: number;
+	amountDue: number;
+	dueAmount?: number; // Legacy field, same as amountDue
 	status: DuesStatusType;
-	createdAt: string;
-	updatedAt: string;
+	createdAt?: string;
+	updatedAt?: string;
 	[key: string]: any; // Allow additional fields
 }
 

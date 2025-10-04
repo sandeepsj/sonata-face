@@ -60,6 +60,7 @@
 			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
 				<li><a href="/students">Students</a></li>
 				<li><a href="/courses">Courses</a></li>
+				<li><a href="/dues">Dues</a></li>
 				<li><a href="/payments">Payments</a></li>
 			</ul>
 		</div>
@@ -72,6 +73,7 @@
 		<ul class="menu menu-horizontal px-1">
 			<li><a href="/students">Students</a></li>
 			<li><a href="/courses">Courses</a></li>
+			<li><a href="/dues">Dues</a></li>
 			<li><a href="/payments">Payments</a></li>
 		</ul>
 	</div>

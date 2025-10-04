@@ -1,6 +1,7 @@
 // Fee dues API service
 import { ApiError, apiRequest, API_CONFIG } from './config';
 import type { FeeDuesTrackerDTO, FeeDuesResponse, PaymentCreateRequest } from '../types/feeDues';
+import type { DuesFilterParams } from '../types/duesAggregate';
 
 export class FeeDuesService {
 	/**
@@ -24,6 +25,35 @@ export class FeeDuesService {
 			console.error('Error fetching student dues:', error);
 			throw error;
 		}
+	}
+
+	/**
+	 * Get pending dues (DUE or PARTIALLY_PAID) with optional filters
+	 */
+	static async getPendingDues(params: Omit<DuesFilterParams, 'statuses'> = {}): Promise<FeeDuesTrackerDTO[]> {
+		const queryParams = new URLSearchParams();
+		
+		if (params.year !== undefined && params.year !== null) queryParams.append('year', params.year.toString());
+		if (params.termNumber !== undefined && params.termNumber !== null) queryParams.append('termNumber', params.termNumber.toString());
+		if (params.course) queryParams.append('course', params.course);
+
+		const url = `${API_CONFIG.ENDPOINTS.DUES}/pending${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+		return apiRequest<FeeDuesTrackerDTO[]>(url);
+	}
+
+	/**
+	 * Get dues with custom status filters
+	 */
+	static async getDuesWithFilters(params: DuesFilterParams = {}): Promise<FeeDuesTrackerDTO[]> {
+		const queryParams = new URLSearchParams();
+		
+		if (params.statuses) queryParams.append('statuses', params.statuses);
+		if (params.year !== undefined && params.year !== null) queryParams.append('year', params.year.toString());
+		if (params.termNumber !== undefined && params.termNumber !== null) queryParams.append('termNumber', params.termNumber.toString());
+		if (params.course) queryParams.append('course', params.course);
+
+		const url = `${API_CONFIG.ENDPOINTS.DUES}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+		return apiRequest<FeeDuesTrackerDTO[]>(url);
 	}
 
 	/**
