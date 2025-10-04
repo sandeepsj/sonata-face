@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Banknote, Settings } from 'lucide-svelte';
+	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Banknote, Settings, Receipt } from 'lucide-svelte';
 	import { currentStudentStore } from '$lib';
 	import type { LayoutData } from './$types';
 
@@ -28,6 +28,7 @@
 		{ path: '/sessions', label: 'Sessions', icon: BookOpen },
 		{ path: '/payments', label: 'Payment History', icon: Banknote },
 		{ path: '/manage-payments', label: 'Manage Payments', icon: Settings },
+		{ path: '/receipts', label: 'Receipts', icon: Receipt },
 		{ path: '/timeline', label: 'Timeline', icon: Clock },
 		{ path: '/dues', label: 'Pay Fees', icon: CreditCard },
 	];
