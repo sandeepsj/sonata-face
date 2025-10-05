@@ -1,6 +1,6 @@
 // API configuration and base URL
 export const API_CONFIG = {
-	BASE_URL: 'http://localhost:8080',
+	BASE_URL: 'https://sonata-brain.onrender.com',
 	ENDPOINTS: {
 		STUDENTS: '/api/students',
 		COURSES: '/api/courses',
