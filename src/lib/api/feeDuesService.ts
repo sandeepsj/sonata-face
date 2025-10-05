@@ -106,4 +106,29 @@ export class FeeDuesService {
 			throw error;
 		}
 	}
+
+	/**
+	 * Mark a due as STUDENT_LEFT_DUE_CANCELLED
+	 * Can only be done if the student has a disjoined session for that course
+	 * and the due is in DUE or PARTIALLY_PAID status
+	 */
+	static async markDueAsStudentLeftCancelled(duesId: number): Promise<FeeDuesTrackerDTO> {
+		if (!duesId) {
+			throw new ApiError('Dues ID is required');
+		}
+
+		try {
+			const response = await apiRequest<FeeDuesTrackerDTO>(
+				`${API_CONFIG.ENDPOINTS.DUES}/${duesId}/mark-student-left-cancelled`,
+				{
+					method: 'PATCH',
+				}
+			);
+
+			return response;
+		} catch (error) {
+			console.error('Error marking due as cancelled:', error);
+			throw error;
+		}
+	}
 }

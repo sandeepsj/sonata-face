@@ -9,10 +9,13 @@
 		Calendar, 
 		IndianRupee,
 		Clock,
-		Book
+		Book,
+		XCircle,
+		AlertTriangle
 	} from 'lucide-svelte';
 	import { 
 		currentStudentStore,
+		FeeDuesService,
 		type FeeDuesTrackerDTO,
 		DuesStatus
 	} from '$lib';
@@ -26,17 +29,26 @@
 	$: currentStudentState = $currentStudentStore;
 	$: student = currentStudentState.student;
 	$: dues = currentStudentState.dues;
+	$: sessions = currentStudentState.sessions;
 
 	// Modal states
 	let paymentModalOpen = false;
 	let additionalPaymentModalOpen = false;
 	let selectedDue: FeeDuesTrackerDTO | null = null;
 
-	// Load dues on mount - always force refresh
+	// Cancellation state
+	let cancellingDueId: number | null = null;
+	let showCancelConfirmModal = false;
+	let dueToCancel: FeeDuesTrackerDTO | null = null;
+
+	// Load dues and sessions on mount - always force refresh
 	onMount(async () => {
 		if (studentId) {
-			// Force refresh to get latest dues data
-			await currentStudentStore.fetchDues(studentId, true);
+			// Force refresh to get latest dues and sessions data
+			await Promise.all([
+				currentStudentStore.fetchDues(studentId, true),
+				currentStudentStore.fetchSessions(studentId, true)
+			]);
 		}
 	});
 
@@ -55,16 +67,20 @@
 	);
 	$: paidDues = dues.data.filter(due => due.status === DuesStatus.PAID);
 	$: partiallyPaidDues = dues.data.filter(due => due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL);
+	$: cancelledDues = dues.data.filter(due => due.status === DuesStatus.STUDENT_LEFT_DUE_CANCELLED);
 	
 	// Separate current/past dues from future dues
 	$: currentAndPastDues = pendingDues.filter(due => !isFutureDue(due));
 	$: futureDues = pendingDues.filter(due => isFutureDue(due));
 	
 	// Only count current/past dues in the total (future dues are less urgent)
-	$: totalDueAmount = currentAndPastDues.reduce((sum, due) => sum + due.dueAmount, 0);
+	$: totalDueAmount = currentAndPastDues.reduce((sum, due) => sum + (due.dueAmount || due.amountDue || 0), 0);
 
 	// Format currency
-	function formatCurrency(amount: number): string {
+	function formatCurrency(amount: number | undefined): string {
+		if (amount === undefined || amount === null || isNaN(amount)) {
+			return '₹0.00';
+		}
 		return new Intl.NumberFormat('en-IN', {
 			style: 'currency',
 			currency: 'INR',
@@ -72,7 +88,10 @@
 	}
 
 	// Format date
-	function formatDate(dateString: string): string {
+	function formatDate(dateString: string | undefined): string {
+		if (!dateString) {
+			return 'N/A';
+		}
 		try {
 			return new Date(dateString).toLocaleDateString('en-US', {
 				year: 'numeric',
@@ -96,6 +115,8 @@
 			case DuesStatus.PARTIAL:
 			case DuesStatus.PARTIALLY_PAID:
 				return 'badge-info';
+			case DuesStatus.STUDENT_LEFT_DUE_CANCELLED:
+				return 'badge-neutral';
 			default:
 				return 'badge-ghost';
 		}
@@ -196,6 +217,56 @@
 			await currentStudentStore.fetchDues(studentId, true);
 		}
 	}
+
+	/**
+	 * Check if a due can be marked as cancelled (session is inactive)
+	 */
+	function canCancelDue(due: FeeDuesTrackerDTO): boolean {
+		// Only DUE or PARTIALLY_PAID dues can be cancelled
+		if (due.status !== DuesStatus.DUE && due.status !== DuesStatus.PARTIALLY_PAID && due.status !== DuesStatus.PARTIAL) {
+			return false;
+		}
+		
+		// Check if the session is inactive (has disjoining date)
+		return !currentStudentStore.isSessionActive(due.sessionId);
+	}
+
+	/**
+	 * Handle marking a due as cancelled because student left
+	 */
+	async function handleCancelDue(due: FeeDuesTrackerDTO) {
+		dueToCancel = due;
+		showCancelConfirmModal = true;
+	}
+
+	function closeCancelConfirmModal() {
+		showCancelConfirmModal = false;
+		dueToCancel = null;
+		cancellingDueId = null;
+	}
+
+	async function confirmCancelDue() {
+		if (!dueToCancel) return;
+
+		try {
+			cancellingDueId = dueToCancel.id;
+			
+			await FeeDuesService.markDueAsStudentLeftCancelled(dueToCancel.id);
+			
+			// Refresh dues to show updated status
+			if (studentId) {
+				await currentStudentStore.fetchDues(studentId, true);
+			}
+			
+			// Close modal
+			closeCancelConfirmModal();
+			
+		} catch (error) {
+			console.error('Error cancelling due:', error);
+			alert(error instanceof Error ? error.message : 'Failed to cancel due. Please try again.');
+			cancellingDueId = null;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -259,7 +330,7 @@
 	<!-- Content -->
 	{#if !dues.loading && !dues.error}
 		<!-- Summary Cards -->
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+		<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 			<!-- Total Due Amount (Current & Past Only) -->
 			<div class="stat bg-base-100 rounded-lg shadow-sm">
 				<div class="stat-figure text-error">
@@ -291,6 +362,20 @@
 				</div>
 				<div class="stat-desc">
 					Successfully paid
+				</div>
+			</div>
+
+			<!-- Cancelled Dues Count -->
+			<div class="stat bg-base-100 rounded-lg shadow-sm">
+				<div class="stat-figure text-neutral">
+					<XCircle class="w-8 h-8" />
+				</div>
+				<div class="stat-title">Cancelled Dues</div>
+				<div class="stat-value text-neutral text-2xl">
+					{cancelledDues.length}
+				</div>
+				<div class="stat-desc">
+					Student left course
 				</div>
 			</div>
 
@@ -381,13 +466,30 @@
 											{/if}
 										</td>
 										<td>
-											<button 
-												class="btn btn-primary btn-sm"
-												on:click={() => handlePayDue(due)}
-											>
-												<CreditCard class="w-4 h-4 mr-1" />
-												{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay Remaining' : 'Pay Now'}
-											</button>
+											<div class="flex gap-2">
+												<button 
+													class="btn btn-primary btn-sm"
+													on:click={() => handlePayDue(due)}
+												>
+													<CreditCard class="w-4 h-4 mr-1" />
+													{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay Remaining' : 'Pay Now'}
+												</button>
+												
+												{#if canCancelDue(due)}
+													<button 
+														class="btn btn-error btn-sm btn-outline"
+														on:click={() => handleCancelDue(due)}
+														disabled={cancellingDueId === due.id}
+														title="Mark as cancelled - Student left course"
+													>
+														{#if cancellingDueId === due.id}
+															<span class="loading loading-spinner loading-xs"></span>
+														{:else}
+															<XCircle class="w-4 h-4" />
+														{/if}
+													</button>
+												{/if}
+											</div>
 										</td>
 									</tr>
 								{/each}
@@ -565,6 +667,75 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- Cancelled Dues (if any cancelled dues exist) -->
+		{#if cancelledDues.length > 0}
+			<div class="card bg-base-100 shadow-sm border border-neutral/20">
+				<div class="card-body">
+					<h2 class="card-title text-lg mb-4 flex items-center">
+						<XCircle class="w-5 h-5 mr-2 text-neutral" />
+						Cancelled Dues ({cancelledDues.length})
+						<div class="badge badge-neutral badge-sm">Student Left Course</div>
+					</h2>
+					
+					<div class="overflow-x-auto">
+						<table class="table table-zebra">
+							<thead>
+								<tr>
+									<th>Course</th>
+									<th>Term</th>
+									<th>Amount</th>
+									<th>Cancelled Date</th>
+									<th>Status</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each cancelledDues as due}
+									<tr class="opacity-70">
+										<td>
+											<div class="flex items-center space-x-2">
+												<Book class="w-4 h-4 text-neutral" />
+												<span class="font-medium">{due.courseName}</span>
+											</div>
+										</td>
+										<td>
+											<div class="text-sm">
+												<div>Year {due.termYear}</div>
+												<div class="text-base-content/70">Term {due.termNumber}</div>
+											</div>
+										</td>
+										<td>
+											<div class="font-semibold text-neutral">
+												{formatCurrency(due.dueAmount || due.amountDue || 0)}
+											</div>
+										</td>
+										<td>
+											<div class="flex items-center space-x-2">
+												<Calendar class="w-4 h-4" />
+												<span>{formatDate(due.updatedAt)}</span>
+											</div>
+										</td>
+										<td>
+											<div class="badge {getStatusStyle(due.status)} badge-sm">
+												CANCELLED
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					
+					<div class="alert alert-info mt-4">
+						<AlertCircle class="w-5 h-5" />
+						<div class="text-sm">
+							These dues were cancelled because the student left the course before the term was due. 
+							No payment is required for these dues.
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -582,3 +753,85 @@
 	studentName={student?.studentName || ''}
 	on:close={handleAdditionalPaymentModalClose}
 />
+
+<!-- Cancel Due Confirmation Modal -->
+{#if showCancelConfirmModal && dueToCancel}
+	<div class="modal modal-open">
+		<div class="modal-box">
+			<div class="flex items-start gap-4">
+				<div class="flex-shrink-0">
+					<XCircle class="w-12 h-12 text-error" />
+				</div>
+				<div class="flex-1">
+					<h3 class="font-bold text-lg text-base-content mb-3">Cancel Due Confirmation</h3>
+					<p class="text-base-content/80 mb-4">
+						Are you sure you want to mark this due as cancelled? This action <strong>cannot be undone</strong>.
+					</p>
+					
+					<!-- Due Details Card -->
+					<div class="bg-base-200 p-4 rounded-lg mb-4">
+						<div class="space-y-3">
+							<div class="flex items-center justify-between">
+								<span class="text-sm text-base-content/70">Course:</span>
+								<span class="font-semibold flex items-center gap-2">
+									<Book class="w-4 h-4 text-primary" />
+									{dueToCancel.courseName}
+								</span>
+							</div>
+							<div class="flex items-center justify-between">
+								<span class="text-sm text-base-content/70">Term:</span>
+								<span class="font-semibold">
+									{dueToCancel.termYear} - Term {dueToCancel.termNumber}
+								</span>
+							</div>
+							<div class="flex items-center justify-between">
+								<span class="text-sm text-base-content/70">Amount:</span>
+								<span class="font-bold text-lg text-error">
+									{formatCurrency(dueToCancel.dueAmount || dueToCancel.amountDue || 0)}
+								</span>
+							</div>
+							<div class="flex items-center justify-between">
+								<span class="text-sm text-base-content/70">Current Status:</span>
+								<div class="badge {getStatusStyle(dueToCancel.status)}">
+									{dueToCancel.status === DuesStatus.PARTIALLY_PAID ? 'PARTIAL' : dueToCancel.status}
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Warning Alert -->
+					<div class="alert alert-warning">
+						<AlertTriangle class="w-5 h-5" />
+						<div class="text-sm">
+							<div class="font-semibold">Reason for Cancellation:</div>
+							<div class="mt-1">Student has left the course (inactive session detected)</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="modal-action">
+				<button 
+					class="btn btn-ghost"
+					on:click={closeCancelConfirmModal}
+					disabled={cancellingDueId !== null}
+				>
+					No, Keep Due
+				</button>
+				<button 
+					class="btn btn-error"
+					on:click={confirmCancelDue}
+					disabled={cancellingDueId !== null}
+				>
+					{#if cancellingDueId !== null}
+						<span class="loading loading-spinner loading-sm"></span>
+					{:else}
+						<XCircle class="w-4 h-4" />
+					{/if}
+					Yes, Cancel Due
+				</button>
+			</div>
+		</div>
+		<div class="modal-backdrop bg-black/50"></div>
+	</div>
+{/if}

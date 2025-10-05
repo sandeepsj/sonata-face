@@ -25,7 +25,8 @@ export const DuesStatus = {
 	PAID: 'PAID',
 	PARTIAL: 'PARTIAL',
 	PARTIALLY_PAID: 'PARTIALLY_PAID',
-	OVERDUE: 'OVERDUE'
+	OVERDUE: 'OVERDUE',
+	STUDENT_LEFT_DUE_CANCELLED: 'STUDENT_LEFT_DUE_CANCELLED'
 } as const;
 
 export type DuesStatusType = typeof DuesStatus[keyof typeof DuesStatus];

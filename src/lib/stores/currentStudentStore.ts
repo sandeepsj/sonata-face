@@ -2,8 +2,10 @@ import { writable, get } from 'svelte/store';
 import type { Student } from '../types/student.js';
 import type { FeeDuesTrackerDTO } from '../types/feeDues.js';
 import type { Payment } from '../types/payment.js';
+import type { StudentSession } from '../types/studentSession.js';
 import { FeeDuesService } from '../api/feeDuesService.js';
 import { PaymentService } from '../api/paymentService.js';
+import { StudentSessionService } from '../api/studentSessionService.js';
 
 interface CurrentStudentState {
 	student: Student | null;
@@ -21,6 +23,12 @@ interface CurrentStudentState {
 		error: string | null;
 		lastFetched: Date | null;
 	};
+	sessions: {
+		data: StudentSession[];
+		loading: boolean;
+		error: string | null;
+		lastFetched: Date | null;
+	};
 }
 
 const initialState: CurrentStudentState = {
@@ -34,6 +42,12 @@ const initialState: CurrentStudentState = {
 		lastFetched: null
 	},
 	payments: {
+		data: [],
+		loading: false,
+		error: null,
+		lastFetched: null
+	},
+	sessions: {
 		data: [],
 		loading: false,
 		error: null,
@@ -300,6 +314,113 @@ function createCurrentStudentStore() {
 					}
 				};
 			});
+		},
+
+		// Session-related methods
+		async fetchSessions(studentId: number, forceRefresh = false) {
+			// Check if we need to fetch (no data, force refresh, or data is stale)
+			const currentState = get(store);
+			const shouldFetch = forceRefresh || 
+				currentState.sessions.data.length === 0 || 
+				!currentState.sessions.lastFetched ||
+				(Date.now() - currentState.sessions.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
+
+			if (!shouldFetch) {
+				return;
+			}
+
+			update(state => ({
+				...state,
+				sessions: {
+					...state.sessions,
+					loading: true,
+					error: null
+				}
+			}));
+
+			try {
+				const sessions = await StudentSessionService.getAllSessionsByStudent(studentId);
+				update(state => ({
+					...state,
+					sessions: {
+						data: sessions,
+						loading: false,
+						error: null,
+						lastFetched: new Date()
+					}
+				}));
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Failed to load sessions';
+				update(state => ({
+					...state,
+					sessions: {
+						...state.sessions,
+						loading: false,
+						error: errorMessage
+					}
+				}));
+			}
+		},
+
+		// Set sessions loading state
+		setSessionsLoading(loading: boolean) {
+			update(state => ({
+				...state,
+				sessions: {
+					...state.sessions,
+					loading
+				}
+			}));
+		},
+
+		// Update a specific session (after ending session)
+		updateSession(updatedSession: StudentSession) {
+			update(state => ({
+				...state,
+				sessions: {
+					...state.sessions,
+					data: state.sessions.data.map(session => 
+						session.id === updatedSession.id ? updatedSession : session
+					)
+				}
+			}));
+		},
+
+		// Add a new session (after creating)
+		addSession(newSession: StudentSession) {
+			update(state => ({
+				...state,
+				sessions: {
+					...state.sessions,
+					data: [...state.sessions.data, newSession]
+				}
+			}));
+		},
+
+		// Clear sessions data
+		clearSessions() {
+			update(state => ({
+				...state,
+				sessions: {
+					data: [],
+					loading: false,
+					error: null,
+					lastFetched: null
+				}
+			}));
+		},
+
+		// Helper to check if a session is active by sessionId
+		isSessionActive(sessionId: number): boolean {
+			const currentState = get(store);
+			const session = currentState.sessions.data.find(s => s.id === sessionId);
+			return session ? StudentSessionService.isSessionActive(session) : false;
+		},
+
+		// Helper to get a session by ID
+		getSessionById(sessionId: number): StudentSession | undefined {
+			const currentState = get(store);
+			return currentState.sessions.data.find(s => s.id === sessionId);
 		}
 	};
 }

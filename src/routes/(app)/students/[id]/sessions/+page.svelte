@@ -1,17 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { StudentSessionService, CourseService, type StudentSession, type Course, type CreateStudentSessionRequest } from '$lib';
+	import { StudentSessionService, CourseService, currentStudentStore, type StudentSession, type Course, type CreateStudentSessionRequest } from '$lib';
 	import { Calendar, BookOpen, Clock, User, AlertCircle, CheckCircle, Plus, X, AlertTriangle } from 'lucide-svelte';
 
 	// Get student ID from URL params
 	$: studentId = Number($page.params.id);
 
+	// Subscribe to store
+	$: storeState = $currentStudentStore;
+	$: sessions = storeState.sessions.data;
+	$: loading = storeState.sessions.loading;
+	$: error = storeState.sessions.error;
+
 	// Component state
-	let sessions: StudentSession[] = [];
 	let courses: Course[] = [];
-	let loading = true;
-	let error = '';
+	let loadingCourses = false;
 
 	// Enrollment modal state
 	let showEnrollmentModal = false;
@@ -45,23 +49,27 @@
 
 	async function loadStudentSessions() {
 		try {
-			loading = true;
-			error = '';
+			loadingCourses = true;
 
-			// Load both sessions and courses
-			const [sessionsData, coursesData] = await Promise.all([
-				StudentSessionService.getAllSessionsByStudent(studentId),
-				CourseService.getCourses()
+			// Load sessions from store (will fetch if needed) and courses
+			await Promise.all([
+				currentStudentStore.fetchSessions(studentId),
+				loadCourses()
 			]);
-			
-			sessions = sessionsData;
-			courses = coursesData;
 
 		} catch (err) {
 			console.error('Error loading student sessions:', err);
-			error = err instanceof Error ? err.message : 'Failed to load student sessions';
+			// Error is handled in the store
 		} finally {
-			loading = false;
+			loadingCourses = false;
+		}
+	}
+
+	async function loadCourses() {
+		try {
+			courses = await CourseService.getCourses();
+		} catch (err) {
+			console.error('Error loading courses:', err);
 		}
 	}
 
@@ -69,7 +77,6 @@
 		// Find the session to end
 		const session = sessions.find(s => s.id === sessionId);
 		if (!session) {
-			error = 'Session not found';
 			return;
 		}
 
@@ -89,18 +96,17 @@
 
 		try {
 			endingSession = true;
-			error = '';
 
 			await StudentSessionService.disjoinSession(sessionToEnd.id);
 			
-			// Close modal and reload data
+			// Close modal and reload data from store
 			showConfirmModal = false;
 			sessionToEnd = null;
-			await loadStudentSessions();
+			await currentStudentStore.fetchSessions(studentId, true); // Force refresh
 
 		} catch (err) {
 			console.error('Error ending session:', err);
-			error = err instanceof Error ? err.message : 'Failed to end session';
+			// Error is shown in UI from store's error state
 		} finally {
 			endingSession = false;
 		}
@@ -112,7 +118,6 @@
 		customJoinDate = '';
 		customDisjoinDate = '';
 		sessionType = 'active';
-		error = '';
 	}
 
 	function closeEnrollmentModal() {
@@ -121,23 +126,19 @@
 		customJoinDate = '';
 		customDisjoinDate = '';
 		sessionType = 'active';
-		error = '';
 	}
 
 	async function handleEnrollment() {
 		if (!selectedCourseId) {
-			error = 'Please select a course';
 			return;
 		}
 
 		// Validation for historical sessions
 		if (sessionType === 'historical') {
 			if (!customJoinDate) {
-				error = 'Join date is required for historical sessions';
 				return;
 			}
 			if (!customDisjoinDate) {
-				error = 'End date is required for historical sessions';
 				return;
 			}
 			
@@ -145,18 +146,15 @@
 			const disjoinDate = new Date(customDisjoinDate);
 			
 			if (disjoinDate <= joinDate) {
-				error = 'End date must be after join date';
 				return;
 			}
 		}
 
 		try {
 			enrollmentLoading = true;
-			error = '';
 
 			const selectedCourse = courses.find(c => c.id === selectedCourseId);
 			if (!selectedCourse) {
-				error = 'Selected course not found';
 				return;
 			}
 
@@ -177,13 +175,13 @@
 
 			await StudentSessionService.createSession(enrollmentRequest);
 			
-			// Close modal and reload data
+			// Close modal and reload data from store
 			closeEnrollmentModal();
-			await loadStudentSessions();
+			await currentStudentStore.fetchSessions(studentId, true); // Force refresh
 
 		} catch (err) {
 			console.error('Error enrolling student:', err);
-			error = err instanceof Error ? err.message : 'Failed to enroll student in course';
+			// Error is shown in UI from store's error state
 		} finally {
 			enrollmentLoading = false;
 		}
