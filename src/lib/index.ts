@@ -10,6 +10,7 @@ export type { Payment, PaymentStudent, PaymentFeeStructure, PaymentHistoryRespon
 export type { PaymentDiscount as PaymentDiscountDetail, PaymentTypeType as ApiPaymentType } from './types/payment.js';
 export { PaymentTypeEnum, calculateAmountCleared, formatPaymentType } from './types/payment.js';
 export type { DuesAggregateFilters, DuesAggregateResponse, CourseAggregate, YearAggregate, TermAggregate, AggregateGroupBy, DuesFilterParams } from './types/duesAggregate.js';
+export type { SignupRequest, LoginRequest, AuthResponse, User, AuthState } from './types/auth.js';
 
 // Export API services
 export { StudentService } from './api/studentService.js';
@@ -19,11 +20,13 @@ export { StudentSessionService } from './api/studentSessionService.js';
 export { FeeDuesService } from './api/feeDuesService.js';
 export { PaymentService } from './api/paymentService.js';
 export { DuesAggregateService } from './api/duesAggregateService.js';
-export { API_CONFIG, ApiError } from './api/config.js';
+export { AuthService } from './api/authService.js';
+export { API_CONFIG, ApiError, setAuthFunctions } from './api/config.js';
 
 // Export stores
 export { studentStore } from './stores/studentStore.js';
 export { currentStudentStore } from './stores/currentStudentStore.js';
 export { feeStructureStore } from './stores/feeStructureStore.js';
+export { authStore } from './stores/authStore.js';
 export type { CurrentStudentState } from './stores/currentStudentStore.js';
 export type { FeeStructureStoreState, FeeStructureCache } from './stores/feeStructureStore.js';

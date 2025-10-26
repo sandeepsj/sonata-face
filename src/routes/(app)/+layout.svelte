@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { User, Menu, Sun, Moon } from 'lucide-svelte';
+	import { User, Menu, Sun, Moon, LogOut } from 'lucide-svelte';
+	import { authStore } from '$lib/stores/authStore';
 
 	let { children } = $props();
 	let mobileMenuOpen = $state(false);
@@ -8,6 +9,10 @@
 
 	function toggleMobileMenu() {
 		mobileMenuOpen = !mobileMenuOpen;
+	}
+
+	function handleLogout() {
+		authStore.logout();
 	}
 
 	function toggleTheme() {
@@ -96,9 +101,21 @@
 				</div>
 			</div>
 			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
+				<li>
+					<div class="flex items-center gap-2 pointer-events-none">
+						<User class="w-4 h-4" />
+						<span class="text-xs truncate">{$authStore.user?.email || 'User'}</span>
+					</div>
+				</li>
+				<div class="divider my-0"></div>
 				<li><a href="/profile">Profile</a></li>
 				<li><a href="/settings">Settings</a></li>
-				<li><a href="/logout">Logout</a></li>
+				<li>
+					<button type="button" onclick={handleLogout} class="flex items-center gap-2">
+						<LogOut class="w-4 h-4" />
+						Logout
+					</button>
+				</li>
 			</ul>
 		</div>
 	</div>

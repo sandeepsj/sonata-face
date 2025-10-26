@@ -9,6 +9,11 @@ export const API_CONFIG = {
 		REPORTS: '/api/reports',
 		DUES: '/api/dues',
 		PAYMENTS: '/api/payments',
+		AUTH: {
+			SIGNUP: '/api/users/signup',
+			LOGIN: '/api/auth/login',
+			REFRESH: '/api/auth/refresh',
+		},
 	},
 	DEFAULT_PAGE_SIZE: 10,
 } as const;
@@ -25,21 +30,81 @@ export class ApiError extends Error {
 	}
 }
 
-// Generic fetch wrapper with error handling
+// Flag to prevent infinite refresh loops
+let isRefreshing = false;
+
+// Get access token (will be set by authStore)
+let getAccessToken: (() => string | null) | null = null;
+let refreshTokenFn: (() => Promise<boolean>) | null = null;
+
+/**
+ * Set authentication functions from authStore
+ * This avoids circular dependencies
+ */
+export function setAuthFunctions(
+	tokenGetter: () => string | null,
+	tokenRefresher: () => Promise<boolean>
+) {
+	getAccessToken = tokenGetter;
+	refreshTokenFn = tokenRefresher;
+}
+
+// Generic fetch wrapper with error handling and automatic token injection
 export async function apiRequest<T>(
 	endpoint: string,
-	options: RequestInit = {}
+	options: RequestInit = {},
+	skipAuth: boolean = false
 ): Promise<T> {
 	const url = `${API_CONFIG.BASE_URL}${endpoint}`;
 	
+	// Add Authorization header if token is available and not skipped
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+	};
+
+	// Merge existing headers
+	if (options.headers) {
+		const existingHeaders = new Headers(options.headers);
+		existingHeaders.forEach((value, key) => {
+			headers[key] = value;
+		});
+	}
+
+	if (!skipAuth && getAccessToken) {
+		const token = getAccessToken();
+		if (token) {
+			headers['Authorization'] = `Bearer ${token}`;
+		}
+	}
+	
 	try {
 		const response = await fetch(url, {
-			headers: {
-				'Content-Type': 'application/json',
-				...options.headers,
-			},
+			headers,
 			...options,
 		});
+
+		// Handle 403 Forbidden - try to refresh token
+		if (response.status === 403 && !skipAuth && !isRefreshing && refreshTokenFn) {
+			isRefreshing = true;
+			console.log('[API] 403 Forbidden - attempting token refresh');
+			
+			try {
+				const refreshed = await refreshTokenFn();
+				isRefreshing = false;
+				
+				if (refreshed) {
+					// Retry the original request with new token
+					console.log('[API] Token refreshed successfully, retrying request');
+					return apiRequest<T>(endpoint, options, skipAuth);
+				} else {
+					// Refresh failed, redirect will be handled by authStore
+					throw new ApiError('Session expired. Please login again.', 403, 'Forbidden');
+				}
+			} catch (refreshError) {
+				isRefreshing = false;
+				throw new ApiError('Session expired. Please login again.', 403, 'Forbidden');
+			}
+		}
 
 		if (!response.ok) {
 			// Try to get the error message from response body
