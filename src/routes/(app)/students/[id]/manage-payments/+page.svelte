@@ -217,6 +217,7 @@
 								<th>Type</th>
 								<th>Course</th>
 								<th>Year / Term</th>
+								<th>Remarks</th>
 								<th class="text-right">Amount Paid</th>
 								<th class="text-right">Discount</th>
 								<th class="text-right">Total</th>
@@ -256,6 +257,11 @@
 										{:else}
 											<div class="text-base-content/70">N/A</div>
 										{/if}
+									</td>
+									<td>
+										<div class="text-sm whitespace-normal break-words max-w-xs">
+											{payment.remarks || '-'}
+										</div>
 									</td>
 									<td class="text-right font-mono">
 										{formatCurrency(payment.amountPaid)}
