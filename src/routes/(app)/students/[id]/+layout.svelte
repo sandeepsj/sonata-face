@@ -1,21 +1,57 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Banknote, Settings, Receipt } from 'lucide-svelte';
-	import { currentStudentStore } from '$lib';
+	import { currentStudentStore, StudentService } from '$lib';
 	import type { LayoutData } from './$types';
+	import type { Student } from '$lib/types/student';
 
-	// Data from load function
+	// Data from load function (just the admission number)
 	export let data: LayoutData;
-	$: student = data.student;
-
-	// Initialize store with loaded data
-	$: if (student) {
-		currentStudentStore.setStudent(student);
-	}
+	
+	// Client-side state
+	let student: Student | null = null;
+	let loading = true;
+	let error: string | null = null;
 
 	// Subscribe to current student store
 	$: currentStudentState = $currentStudentStore;
+	
+	// Fetch student data client-side when component mounts
+	onMount(async () => {
+		if (!data.admissionNo) {
+			error = 'Student admission number is required';
+			loading = false;
+			return;
+		}
+
+		try {
+			loading = true;
+			// Search for student by admission number using advanced search
+			const response = await StudentService.advancedSearchStudents({ 
+				admissionNo: data.admissionNo,
+				size: 1 
+			});
+			
+			// Check if we found the student
+			if (!response.content || response.content.length === 0) {
+				error = `Student with admission number ${data.admissionNo} not found`;
+				loading = false;
+				return;
+			}
+
+			student = response.content[0];
+			
+			// Initialize store with loaded data
+			currentStudentStore.setStudent(student);
+			loading = false;
+		} catch (err) {
+			console.error('Error loading student:', err);
+			error = 'Failed to load student data';
+			loading = false;
+		}
+	});
 
 	// Get current path for navigation
 	$: studentId = $page.params.id;
@@ -50,10 +86,34 @@
 </script>
 
 <svelte:head>
-	<title>{student.studentName} - Revathi Arts and Music School</title>
+	<title>{student?.studentName || 'Loading...'} - Revathi Arts and Music School</title>
 </svelte:head>
 
-<div class="min-h-screen bg-base-200">
+{#if loading}
+	<div class="min-h-screen bg-base-200 flex items-center justify-center">
+		<div class="text-center">
+			<span class="loading loading-spinner loading-lg text-primary"></span>
+			<p class="mt-4 text-base-content/70">Loading student data...</p>
+		</div>
+	</div>
+{:else if error}
+	<div class="min-h-screen bg-base-200 flex items-center justify-center">
+		<div class="card bg-base-100 shadow-xl max-w-md">
+			<div class="card-body text-center">
+				<div class="text-error text-5xl mb-4">⚠️</div>
+				<h2 class="card-title justify-center">Error Loading Student</h2>
+				<p class="text-base-content/70">{error}</p>
+				<div class="card-actions justify-center mt-4">
+					<button class="btn btn-primary" on:click={goBack}>
+						<ArrowLeft class="w-4 h-4" />
+						Back to Students
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{:else if student}
+	<div class="min-h-screen bg-base-200">
 	<!-- Header with student info -->
 	<div class="bg-base-100 shadow-sm border-b">
 		<div class="container mx-auto p-4">
@@ -121,3 +181,4 @@
 		</div>
 	</div>
 </div>
+{/if}
