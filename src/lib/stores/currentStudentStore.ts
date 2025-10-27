@@ -16,18 +16,21 @@ interface CurrentStudentState {
 		loading: boolean;
 		error: string | null;
 		lastFetched: Date | null;
+		studentId: number | null; // Track which student's data this is
 	};
 	payments: {
 		data: Payment[];
 		loading: boolean;
 		error: string | null;
 		lastFetched: Date | null;
+		studentId: number | null; // Track which student's data this is
 	};
 	sessions: {
 		data: StudentSession[];
 		loading: boolean;
 		error: string | null;
 		lastFetched: Date | null;
+		studentId: number | null; // Track which student's data this is
 	};
 }
 
@@ -39,19 +42,22 @@ const initialState: CurrentStudentState = {
 		data: [],
 		loading: false,
 		error: null,
-		lastFetched: null
+		lastFetched: null,
+		studentId: null
 	},
 	payments: {
 		data: [],
 		loading: false,
 		error: null,
-		lastFetched: null
+		lastFetched: null,
+		studentId: null
 	},
 	sessions: {
 		data: [],
 		loading: false,
 		error: null,
-		lastFetched: null
+		lastFetched: null,
+		studentId: null
 	}
 };
 
@@ -104,9 +110,11 @@ function createCurrentStudentStore() {
 
 		// Dues-related methods
 		async fetchDues(studentId: number, forceRefresh = false) {
-			// Check if we need to fetch (no data, force refresh, or data is stale)
+			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
 			const currentState = get(store);
+			const isDifferentStudent = currentState.dues.studentId !== studentId;
 			const shouldFetch = forceRefresh || 
+				isDifferentStudent ||
 				currentState.dues.data.length === 0 || 
 				!currentState.dues.lastFetched ||
 				(Date.now() - currentState.dues.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
@@ -132,7 +140,8 @@ function createCurrentStudentStore() {
 						data: dues,
 						loading: false,
 						error: null,
-						lastFetched: new Date()
+						lastFetched: new Date(),
+						studentId: studentId
 					}
 				}));
 			} catch (error) {
@@ -191,7 +200,8 @@ function createCurrentStudentStore() {
 					data: [],
 					loading: false,
 					error: null,
-					lastFetched: null
+					lastFetched: null,
+					studentId: null
 				}
 			}));
 		},
@@ -200,14 +210,17 @@ function createCurrentStudentStore() {
 		async fetchPayments(studentId: number, forceRefresh = false) {
 			console.log('[Store] fetchPayments called for studentId:', studentId, 'forceRefresh:', forceRefresh);
 			
-			// Check if we need to fetch (no data, force refresh, or data is stale)
+			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
 			const currentState = get(store);
+			const isDifferentStudent = currentState.payments.studentId !== studentId;
 			const shouldFetch = forceRefresh || 
+				isDifferentStudent ||
 				currentState.payments.data.length === 0 || 
 				!currentState.payments.lastFetched ||
 				(Date.now() - currentState.payments.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
 
 			console.log('[Store] Should fetch payments?', shouldFetch, {
+				isDifferentStudent,
 				hasData: currentState.payments.data.length > 0,
 				lastFetched: currentState.payments.lastFetched
 			});
@@ -238,7 +251,8 @@ function createCurrentStudentStore() {
 						data: payments,
 						loading: false,
 						error: null,
-						lastFetched: new Date()
+						lastFetched: new Date(),
+						studentId: studentId
 					}
 				}));
 				console.log('[Store] Payment data stored successfully');
@@ -275,7 +289,8 @@ function createCurrentStudentStore() {
 					data: [],
 					loading: false,
 					error: null,
-					lastFetched: null
+					lastFetched: null,
+					studentId: null
 				}
 			}));
 		},
@@ -318,9 +333,11 @@ function createCurrentStudentStore() {
 
 		// Session-related methods
 		async fetchSessions(studentId: number, forceRefresh = false) {
-			// Check if we need to fetch (no data, force refresh, or data is stale)
+			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
 			const currentState = get(store);
+			const isDifferentStudent = currentState.sessions.studentId !== studentId;
 			const shouldFetch = forceRefresh || 
+				isDifferentStudent ||
 				currentState.sessions.data.length === 0 || 
 				!currentState.sessions.lastFetched ||
 				(Date.now() - currentState.sessions.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
@@ -346,7 +363,8 @@ function createCurrentStudentStore() {
 						data: sessions,
 						loading: false,
 						error: null,
-						lastFetched: new Date()
+						lastFetched: new Date(),
+						studentId: studentId
 					}
 				}));
 			} catch (error) {
@@ -405,7 +423,8 @@ function createCurrentStudentStore() {
 					data: [],
 					loading: false,
 					error: null,
-					lastFetched: null
+					lastFetched: null,
+					studentId: null
 				}
 			}));
 		},

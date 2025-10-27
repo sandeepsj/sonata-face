@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { StudentSessionService, CourseService, currentStudentStore, type StudentSession, type Course, type CreateStudentSessionRequest } from '$lib';
 	import { Calendar, BookOpen, Clock, User, AlertCircle, CheckCircle, Plus, X, AlertTriangle } from 'lucide-svelte';
@@ -128,6 +127,11 @@
 		sessionType = 'active';
 	}
 
+	// Reactive statement to load sessions when studentId changes
+	$: if (studentId) {
+		loadStudentSessions();
+	}
+
 	async function handleEnrollment() {
 		if (!selectedCourseId) {
 			return;
@@ -186,10 +190,6 @@
 			enrollmentLoading = false;
 		}
 	}
-
-	onMount(() => {
-		loadStudentSessions();
-	});
 </script>
 
 <svelte:head>
