@@ -21,6 +21,7 @@ export { FeeDuesService } from './api/feeDuesService.js';
 export { PaymentService } from './api/paymentService.js';
 export { DuesAggregateService } from './api/duesAggregateService.js';
 export { AuthService } from './api/authService.js';
+export { HeartbeatService } from './api/heartbeatService.js';
 export { API_CONFIG, ApiError, setAuthFunctions } from './api/config.js';
 
 // Export stores

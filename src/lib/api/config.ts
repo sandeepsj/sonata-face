@@ -9,6 +9,7 @@ export const API_CONFIG = {
 		REPORTS: '/api/reports',
 		DUES: '/api/dues',
 		PAYMENTS: '/api/payments',
+		HEARTBEAT: '/heartbeat',
 		AUTH: {
 			SIGNUP: '/api/users/signup',
 			LOGIN: '/api/auth/login',
@@ -16,6 +17,7 @@ export const API_CONFIG = {
 		},
 	},
 	DEFAULT_PAGE_SIZE: 10,
+	HEARTBEAT_INTERVAL: 25000, // 25 seconds
 } as const;
 
 // Common API error class
