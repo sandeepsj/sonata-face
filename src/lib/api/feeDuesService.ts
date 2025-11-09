@@ -70,9 +70,6 @@ export class FeeDuesService {
 				API_CONFIG.ENDPOINTS.PAYMENTS,
 				{
 					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-					},
 					body: JSON.stringify(paymentRequest),
 				}
 			);
