@@ -35,7 +35,7 @@
 	<title>Log In - Revathi Arts and Music School</title>
 </svelte:head>
 
-<div class="min-h-screen flex items-center justify-center bg-base-200 px-4">
+<div class="min-h-screen flex items-center justify-center bg-base-200 px-4 background-container">
 	<div class="card w-full max-w-md bg-base-100 shadow-xl">
 		<div class="card-body">
 			<!-- Header -->
@@ -182,3 +182,18 @@
 		</div>
 	</div>
 </div>
+
+
+<style>
+	.background-container {
+	z-index: 1;
+	background-image: url('/bg.svg');
+	background-repeat: repeat;
+	background-size: 400px 400px;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	}
+</style>
