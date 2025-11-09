@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { User, Menu, Sun, Moon, LogOut } from 'lucide-svelte';
+		import { User, Menu, Sun, Moon, LogOut, Users, BookOpen, CreditCard, Banknote } from 'lucide-svelte';
 	import { authStore } from '$lib/stores/authStore';
 
 	let { children } = $props();
@@ -63,10 +63,30 @@
 				<Menu class="w-5 h-5" />
 			</div>
 			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
-				<li><a href="/students">Students</a></li>
-				<li><a href="/courses">Courses</a></li>
-				<li><a href="/dues">Dues</a></li>
-				<li><a href="/payments">Payments</a></li>
+				<li>
+					<a href="/students" class="flex items-center gap-2">
+						<Users class="w-4 h-4" />
+						<span>Students</span>
+					</a>
+				</li>
+				<li>
+					<a href="/courses" class="flex items-center gap-2">
+						<BookOpen class="w-4 h-4" />
+						<span>Courses</span>
+					</a>
+				</li>
+				<li>
+					<a href="/dues" class="flex items-center gap-2">
+						<CreditCard class="w-4 h-4" />
+						<span>Dues</span>
+					</a>
+				</li>
+				<li>
+					<a href="/payments" class="flex items-center gap-2">
+						<Banknote class="w-4 h-4" />
+						<span>Payments</span>
+					</a>
+				</li>
 			</ul>
 		</div>
 		<a href="/students" class="btn btn-ghost">
@@ -75,12 +95,32 @@
 	</div>
 	
 	<div class="navbar-center hidden md:flex">
-		<ul class="menu menu-horizontal px-1">
-			<li><a href="/students">Students</a></li>
-			<li><a href="/courses">Courses</a></li>
-			<li><a href="/dues">Dues</a></li>
-			<li><a href="/payments">Payments</a></li>
-		</ul>
+			<ul class="menu menu-horizontal px-1">
+				<li>
+					<a href="/students" class="flex items-center gap-2">
+						<Users class="w-4 h-4" />
+						<span>Students</span>
+					</a>
+				</li>
+				<li>
+					<a href="/courses" class="flex items-center gap-2">
+						<BookOpen class="w-4 h-4" />
+						<span>Courses</span>
+					</a>
+				</li>
+				<li>
+					<a href="/dues" class="flex items-center gap-2">
+						<CreditCard class="w-4 h-4" />
+						<span>Dues</span>
+					</a>
+				</li>
+				<li>
+					<a href="/payments" class="flex items-center gap-2">
+						<Banknote class="w-4 h-4" />
+						<span>Payments</span>
+					</a>
+				</li>
+			</ul>
 	</div>
 	
 	<div class="navbar-end">

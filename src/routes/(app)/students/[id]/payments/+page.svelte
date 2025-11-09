@@ -12,7 +12,8 @@
 		ChevronRight,
 		Tag,
 		FileText,
-		TrendingUp
+		TrendingUp,
+		BookOpen
 	} from 'lucide-svelte';
 
 	// Receive student from layout slot prop (optional, might be null initially)
@@ -319,8 +320,10 @@
 									</div>
 									
 									{#if paymentDetails.courseName}
-										<p class="text-sm text-base-content/70 mb-1">
-											<span class="font-semibold">Course:</span> {paymentDetails.courseName}
+										<p class="text-sm text-base-content/70 mb-1 flex items-center gap-2">
+											<BookOpen class="w-4 h-4 text-base-content/70" />
+											<span class="font-semibold">Course:</span>
+											<span>{paymentDetails.courseName}</span>
 										</p>
 									{/if}
 									

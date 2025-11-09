@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/final.png';
 	import '../app.css';
 	import { authStore } from '$lib/stores/authStore';
 	import { setAuthFunctions, API_CONFIG } from '$lib/api/config';
