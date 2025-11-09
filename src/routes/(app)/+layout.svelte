@@ -17,7 +17,7 @@
 
 	function toggleTheme() {
 		// DaisyUI theme switching with localStorage persistence
-		const themes = ['light', 'dark', 'cupcake', 'emerald', 'corporate', 'forest'];
+		const themes = ['light', 'dark'];
 		const currentIndex = themes.indexOf(currentTheme);
 		const nextIndex = (currentIndex + 1) % themes.length;
 		const newTheme = themes[nextIndex];
@@ -90,7 +90,13 @@
 			</ul>
 		</div>
 		<a href="/students" class="btn btn-ghost">
-			<img src="/company-logo-minimal.svg" alt="Revathi Arts and Music School" class="h-8" />
+			<!-- Apply filter to make logo white in dark theme -->
+			<img
+				src="/company-logo-minimal.svg"
+				alt="Revathi Arts and Music School"
+				class="h-8"
+				style="filter: {currentTheme === 'dark' ? 'brightness(0) invert(1)' : 'none'}"
+			/>
 		</a>
 	</div>
 	

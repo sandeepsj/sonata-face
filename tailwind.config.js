@@ -7,7 +7,7 @@ export default {
   },
   plugins: [require('daisyui')],
   daisyui: {
-    themes: ["light", "dark", "cupcake", "emerald", "corporate", "forest"],
+    themes: ["light", "dark"],
     darkTheme: "dark",
     base: true,
     styled: true,
