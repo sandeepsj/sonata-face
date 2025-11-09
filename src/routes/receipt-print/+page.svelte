@@ -200,7 +200,7 @@
 				{#each payments as payment}
 					<tr>
 						<td>{formatDate(payment.date)}</td>
-						<td>{payment.label || payment.courseName || 'Fee Payment'}</td>
+						<td>{ payment.courseName || payment.label || 'Fee Payment'}</td>
 						<td>
 							{#if payment.termYear && payment.termNumber}
 								Y{payment.termYear} T{payment.termNumber}
