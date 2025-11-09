@@ -28,7 +28,7 @@
 	let totalCollected = 0;
 	let totalDiscount = 0;
 	let totalFeeCleared = 0;
-	let additionalPaymentData: { remark: string; amount: number; count: number }[] = [];
+	let additionalPaymentData: { label: string; amount: number; count: number }[] = [];
 	let courseData: { course: string; amount: number; count: number }[] = [];
 	
 	// Initialize with current month
@@ -107,15 +107,15 @@
 		payments
 			.filter(payment => payment.paymentType === 'ADDITIONAL')
 			.forEach(payment => {
-				const remark = payment.remarks || 'No Remarks';
-				const existing = additionalMap.get(remark) || { amount: 0, count: 0 };
+				const label = payment.label || 'No Label';
+				const existing = additionalMap.get(label) || { amount: 0, count: 0 };
 				existing.amount += payment.amountPaid + (payment.discountAmount || 0);
 				existing.count += 1;
-				additionalMap.set(remark, existing);
+				additionalMap.set(label, existing);
 			});
 		
 		additionalPaymentData = Array.from(additionalMap.entries())
-			.map(([remark, value]) => ({ remark, ...value }))
+			.map(([label, value]) => ({ label, ...value }))
 			.sort((a, b) => b.amount - a.amount);
 		
 		// Course aggregation
@@ -476,13 +476,13 @@
 		<!-- Additional Payments by Remark Chart -->
 		<div class="card bg-base-100 shadow-xl">
 			<div class="card-body">
-				<h2 class="card-title">Additional Payments by Remark</h2>
+				<h2 class="card-title">Additional Payments by Label</h2>
 				{#if additionalPaymentData.length > 0}
 					<div class="space-y-3">
 						{#each additionalPaymentData as data}
 							<div>
 								<div class="flex justify-between text-sm mb-1">
-									<span class="font-medium">{data.remark}</span>
+									<span class="font-medium">{data.label}</span>
 									<span class="text-base-content/70">₹{formatCurrency(data.amount)} ({data.count} payments)</span>
 								</div>
 								<div class="w-full bg-base-300 rounded-full h-4">
@@ -531,6 +531,7 @@
 					<table class="table table-sm">
 						<thead>
 							<tr class="bg-base-200">
+								<th>R.No</th>
 								<th class="whitespace-nowrap">Date</th>
 								<th>Student Name</th>
 								<th>Student ID</th>
@@ -548,6 +549,9 @@
 						<tbody>
 							{#each payments as payment}
 								<tr class="hover">
+									<td>
+										<div class="text-center">{payment.id}</div>
+									</td>
 									<td class="whitespace-nowrap">{formatDateShort(payment.date)}</td>
 									<td>
 										<div class="font-medium">{payment.student.studentName || 'N/A'}</div>
