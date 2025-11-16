@@ -209,7 +209,9 @@
 								-
 							{/if}
 						</td>
-						<td class="text-right">₹{formatCurrency(payment.amountPaid)}</td>
+						<td class="text-right" style="font-weight: 600;">
+							₹{formatCurrency(payment.amountPaid + (payment.discountAmount || 0))}
+						</td>
 						<td class="text-right">
 							{#if payment.discountAmount}
 								₹{formatCurrency(payment.discountAmount)}
@@ -217,9 +219,7 @@
 								-
 							{/if}
 						</td>
-						<td class="text-right" style="font-weight: 600;">
-							₹{formatCurrency(payment.amountPaid + (payment.discountAmount || 0))}
-						</td>
+						<td class="text-right">₹{formatCurrency(payment.amountPaid)}</td>
 					</tr>
 					{#if payment.discounts && payment.discounts.length > 0}
 						<tr>
