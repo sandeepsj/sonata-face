@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { authStore } from '$lib/stores/authStore';
-	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { authStore } from "$lib/stores/authStore";
+	import { goto } from "$app/navigation";
+	import { onMount } from "svelte";
 
-	let email = '';
-	let password = '';
+	let email = "";
+	let password = "";
 	let showPassword = false;
 
 	$: formValid = email && password;
@@ -12,7 +12,7 @@
 	onMount(() => {
 		// If already authenticated, redirect to students page
 		if ($authStore.isAuthenticated) {
-			goto('/students');
+			goto("/students");
 		}
 	});
 
@@ -27,7 +27,7 @@
 	}
 
 	function navigateToSignup() {
-		goto('/signup');
+		goto("/signup");
 	}
 </script>
 
@@ -35,7 +35,9 @@
 	<title>Log In - Revathi Arts and Music School</title>
 </svelte:head>
 
-<div class="min-h-screen flex items-center justify-center bg-base-200 px-4 background-container">
+<div
+	class="min-h-screen flex items-center justify-center bg-base-200 px-4 background-container"
+>
 	<div class="card w-full max-w-md bg-base-100 shadow-xl">
 		<div class="card-body">
 			<!-- Header -->
@@ -91,7 +93,7 @@
 					<div class="relative">
 						<input
 							id="password"
-							type={showPassword ? 'text' : 'password'}
+							type={showPassword ? "text" : "password"}
 							placeholder="••••••••"
 							class="input input-bordered w-full pr-12"
 							bind:value={password}
@@ -103,7 +105,9 @@
 							type="button"
 							class="absolute right-3 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-circle"
 							onclick={() => (showPassword = !showPassword)}
-							aria-label={showPassword ? 'Hide password' : 'Show password'}
+							aria-label={showPassword
+								? "Hide password"
+								: "Show password"}
 						>
 							{#if showPassword}
 								<svg
@@ -183,17 +187,16 @@
 	</div>
 </div>
 
-
 <style>
 	.background-container {
-	z-index: 1;
-	background-image: url('/bg.svg');
-	background-repeat: repeat;
-	background-size: 400px 400px;
-	width: 100%;
-	height: 100%;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+		z-index: 1;
+		background-image: url("/bg.svg");
+		background-repeat: repeat;
+		background-size: 400px 400px;
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 </style>

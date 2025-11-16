@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { authStore } from '$lib/stores/authStore';
-	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { authStore } from "$lib/stores/authStore";
+	import { goto } from "$app/navigation";
+	import { onMount } from "svelte";
 
-	let email = '';
-	let password = '';
-	let confirmPassword = '';
+	let email = "";
+	let password = "";
+	let confirmPassword = "";
 	let showPassword = false;
 
 	$: passwordsMatch = password === confirmPassword;
@@ -14,7 +14,7 @@
 	onMount(() => {
 		// If already authenticated, redirect to students page
 		if ($authStore.isAuthenticated) {
-			goto('/students');
+			goto("/students");
 		}
 	});
 
@@ -34,7 +34,7 @@
 	}
 
 	function navigateToLogin() {
-		goto('/login');
+		goto("/login");
 	}
 </script>
 
@@ -42,7 +42,9 @@
 	<title>Sign Up - Revathi Arts and Music School</title>
 </svelte:head>
 
-<div class="min-h-screen flex items-center justify-center bg-base-200 px-4 background-container">
+<div
+	class="min-h-screen flex items-center justify-center bg-base-200 px-4 background-container"
+>
 	<div class="card w-full max-w-md bg-base-100 shadow-xl">
 		<div class="card-body">
 			<!-- Header -->
@@ -97,7 +99,7 @@
 					<div class="relative">
 						<input
 							id="password"
-							type={showPassword ? 'text' : 'password'}
+							type={showPassword ? "text" : "password"}
 							placeholder="••••••••"
 							class="input input-bordered w-full pr-12"
 							bind:value={password}
@@ -157,7 +159,7 @@
 					</label>
 					<input
 						id="confirmPassword"
-						type={showPassword ? 'text' : 'password'}
+						type={showPassword ? "text" : "password"}
 						placeholder="••••••••"
 						class="input input-bordered w-full"
 						class:input-error={confirmPassword && !passwordsMatch}
@@ -167,7 +169,9 @@
 					/>
 					{#if confirmPassword && !passwordsMatch}
 						<div class="label">
-							<span class="label-text-alt text-error">Passwords do not match</span>
+							<span class="label-text-alt text-error"
+								>Passwords do not match</span
+							>
 						</div>
 					{/if}
 				</div>
@@ -211,14 +215,14 @@
 
 <style>
 	.background-container {
-	z-index: 1;
-	background-image: url('/bg.svg');
-	background-repeat: repeat;
-	background-size: 400px 400px;
-	width: 100%;
-	height: 100%;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+		z-index: 1;
+		background-image: url("/bg.svg");
+		background-repeat: repeat;
+		background-size: 400px 400px;
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 </style>

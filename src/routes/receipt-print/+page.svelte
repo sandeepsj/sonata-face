@@ -27,7 +27,6 @@
 				// Calculate totals
 				totalAmount = payments.reduce((sum: number, p: any) => sum + (p.amountPaid || 0), 0);
 				totalDiscount = payments.reduce((sum: number, p: any) => sum + (p.discountAmount || 0), 0);
-				grandTotal = totalAmount + totalDiscount;
 			} catch (err) {
 				console.error('Error parsing receipt data:', err);
 			}
@@ -237,7 +236,7 @@
 			<tfoot>
 				<tr>
 					<td colspan="5" class="text-right">Total Amount Paid:</td>
-					<td class="text-right">₹{formatCurrency(grandTotal)}</td>
+					<td class="text-right">₹{formatCurrency(totalAmount)}</td>
 				</tr>
 			</tfoot>
 		</table>
