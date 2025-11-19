@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { X, Plus, AlertCircle, Trash2 } from 'lucide-svelte';
+	import { X, Plus, AlertCircle, Trash2, CreditCard, Tag, Banknote } from 'lucide-svelte';
 	import { 
 		FeeDuesService,
 		currentStudentStore,
@@ -143,16 +143,22 @@
 
 {#if isOpen}
 	<!-- Modal Backdrop -->
-	<div class="modal modal-open">
-		<div class="modal-box w-11/12 max-w-3xl max-h-[90vh] overflow-y-auto">
-			<!-- Modal Header -->
-			<div class="flex items-center justify-between mb-6 sticky top-0 bg-base-100 pb-4 border-b z-10">
-				<h3 class="font-bold text-lg flex items-center">
-					<Plus class="w-5 h-5 mr-2 text-primary" />
-					Add Additional Payment
-				</h3>
+	<div class="modal modal-open bg-black/50 backdrop-blur-sm">
+		<div class="modal-box w-11/12 max-w-2xl p-0 overflow-hidden rounded-2xl shadow-2xl">
+			
+			<!-- Header -->
+			<div class="bg-base-100 px-6 py-4 border-b border-base-200 flex items-center justify-between sticky top-0 z-20">
+				<div class="flex items-center gap-3">
+					<div class="p-2 bg-primary/10 rounded-lg text-primary">
+						<CreditCard class="w-5 h-5" />
+					</div>
+					<div>
+						<h3 class="font-bold text-lg leading-tight">Additional Payment</h3>
+						<p class="text-xs text-base-content/60">Record a miscellaneous payment for {studentName}</p>
+					</div>
+				</div>
 				<button 
-					class="btn btn-sm btn-circle btn-ghost" 
+					class="btn btn-sm btn-circle btn-ghost hover:bg-base-200 transition-colors" 
 					on:click={closeModal}
 					disabled={loading}
 				>
@@ -160,218 +166,202 @@
 				</button>
 			</div>
 
-			<!-- Student Info -->
-			<div class="bg-base-200 p-4 rounded-lg mb-6">
-				<div>
-					<span class="text-base-content/70">Student:</span>
-					<span class="font-medium ml-2">{studentName}</span>
-				</div>
+			<div class="max-h-[calc(90vh-8rem)] overflow-y-auto px-6 py-6 space-y-6">
+				<form on:submit|preventDefault={handleSubmit} class="space-y-6">
+					
+					<!-- Main Amount Input -->
+					<div class="form-control w-full">
+						<label class="label" for="additionalAmount">
+							<span class="label-text font-medium">Payment Amount *</span>
+						</label>
+						<div class="relative">
+							<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+								<span class="text-base-content/40 font-semibold">₹</span>
+							</div>
+							<input 
+								id="additionalAmount"
+								type="number" 
+								step="0.01"
+								min="0.01"
+								bind:value={amountPaid}
+								class="input input-lg input-bordered w-full pl-10 font-bold text-xl focus:input-primary transition-all"
+								placeholder="0.00"
+								disabled={loading}
+								required
+							/>
+						</div>
+					</div>
+
+					<!-- Discounts Section -->
+					<div class="collapse collapse-arrow bg-base-100 border border-base-200 rounded-xl overflow-visible">
+						<input type="checkbox" class="peer" checked={discounts.length > 0} /> 
+						<div class="collapse-title flex items-center gap-2 font-medium py-3 min-h-0">
+							<Tag class="w-4 h-4 text-base-content/60" />
+							<span>Discounts & Adjustments</span>
+							{#if validDiscounts.length > 0}
+								<span class="badge badge-sm badge-success gap-1">
+									{validDiscounts.length} active
+								</span>
+							{/if}
+						</div>
+						<div class="collapse-content px-4 pb-4 peer-checked:pt-2">
+							<div class="space-y-3">
+								{#each discounts as discount, index}
+									<div class="flex flex-col sm:flex-row gap-3 items-start bg-base-200/50 p-3 rounded-lg group">
+										<div class="flex-1 w-full sm:w-auto grid grid-cols-1 sm:grid-cols-2 gap-3">
+											<input 
+												type="text"
+												bind:value={discount.label}
+												class="input input-bordered input-sm w-full"
+												placeholder="Discount Label (e.g. Early Bird)"
+												disabled={loading}
+											/>
+											<div class="relative">
+												<span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-base-content/50">₹</span>
+												<input 
+													type="number" 
+													step="0.01"
+													min="0"
+													bind:value={discount.discountAmount}
+													class="input input-bordered input-sm w-full pl-6"
+													placeholder="Amount"
+													disabled={loading}
+												/>
+											</div>
+										</div>
+										<button 
+											type="button"
+											class="btn btn-ghost btn-xs btn-square text-error opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+											on:click={() => removeDiscount(index)}
+											disabled={loading}
+											title="Remove discount"
+										>
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</div>
+								{/each}
+								
+								<button 
+									type="button"
+									class="btn btn-ghost btn-sm text-primary w-full border-dashed border border-base-300 hover:border-primary hover:bg-primary/5"
+									on:click={addDiscount}
+									disabled={loading}
+								>
+									<Plus class="w-4 h-4 mr-1" />
+									Add Discount
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<!-- Additional Details Grid -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+						<div class="form-control">
+							<label class="label py-1" for="additionalDate">
+								<span class="label-text text-xs uppercase tracking-wider font-semibold text-base-content/50">Date & Time *</span>
+							</label>
+							<div class="relative">
+								<input 
+									id="additionalDate"
+									type="datetime-local" 
+									bind:value={date}
+									class="input input-bordered w-full text-sm"
+									disabled={loading}
+									required
+								/>
+							</div>
+						</div>
+						
+						<div class="form-control">
+							<label class="label py-1" for="additionalLabel">
+								<span class="label-text text-xs uppercase tracking-wider font-semibold text-base-content/50">Payment Label *</span>
+							</label>
+							<input 
+								id="additionalLabel"
+								type="text" 
+								bind:value={label}
+								class="input input-bordered w-full text-sm"
+								placeholder="e.g. Transport Fee"
+								disabled={loading}
+								required
+							/>
+						</div>
+					</div>
+
+					<div class="form-control">
+						<label class="label py-1" for="additionalRemarks">
+							<span class="label-text text-xs uppercase tracking-wider font-semibold text-base-content/50">Remarks</span>
+						</label>
+						<textarea 
+							id="additionalRemarks"
+							bind:value={remarks}
+							class="textarea textarea-bordered w-full text-sm min-h-[80px]"
+							placeholder="Add any additional notes here..."
+							disabled={loading}
+						></textarea>
+					</div>
+
+					<!-- Payment Summary Box -->
+					<div class="bg-base-200 rounded-xl p-4 space-y-2">
+						<div class="flex justify-between text-sm text-base-content/70">
+							<span>Subtotal</span>
+							<span>{formatCurrency(amountPaid)}</span>
+						</div>
+						{#if totalDiscount > 0}
+							<div class="flex justify-between text-sm text-success">
+								<span>Total Discounts</span>
+								<span>-{formatCurrency(totalDiscount)}</span>
+							</div>
+						{/if}
+						<div class="divider my-1"></div>
+						<div class="flex justify-between items-center">
+							<span class="font-bold">Net Payable</span>
+							<span class="font-bold text-xl text-primary">{formatCurrency(netAmount)}</span>
+						</div>
+					</div>
+
+					<!-- Error Display -->
+					{#if error}
+						<div class="alert alert-error shadow-sm rounded-lg text-sm py-2">
+							<AlertCircle class="w-4 h-4" />
+							<span>{error}</span>
+						</div>
+					{/if}
+
+					<!-- Success Display -->
+					{#if success}
+						<div class="alert alert-success shadow-sm rounded-lg text-sm py-2">
+							<Banknote class="w-4 h-4" />
+							<span>Additional payment processed successfully!</span>
+						</div>
+					{/if}
+
+				</form>
 			</div>
 
-			<!-- Payment Form -->
-			<form on:submit|preventDefault={handleSubmit} class="space-y-4">
-				<!-- Amount -->
-				<div class="form-control">
-					<label class="label" for="additionalAmount">
-						<span class="label-text font-semibold">Payment Amount *</span>
-					</label>
-					<input 
-						id="additionalAmount"
-						type="number" 
-						step="0.01"
-						min="0.01"
-						bind:value={amountPaid}
-						class="input input-bordered"
-						placeholder="Enter amount"
-						disabled={loading}
-						required
-					/>
-				</div>
-
-				<!-- Label (Required for additional payments) -->
-				<div class="form-control">
-					<label class="label" for="additionalLabel">
-						<span class="label-text font-semibold">Payment Label * <span class="text-error"></span></span>
-					</label>
-					<input 
-						id="additionalLabel"
-						type="text"
-						bind:value={label}
-						class="input input-bordered"
-						placeholder="e.g., Transport fee, Late fine, Lab charges"
-						disabled={loading}
-						required
-					/>
-					<div class="label">
-						<span class="label-text-alt">Describe what this payment is for</span>
-					</div>
-				</div>
-
-				<!-- Discounts Section -->
-				<div class="divider">Discounts (Optional)</div>
-				
-				{#each discounts as discount, index}
-					<div class="card bg-base-200 p-4">
-						<div class="flex items-start gap-4">
-							<div class="flex-1 space-y-3">
-								<div class="form-control">
-									<label class="label" for="additional-discount-amount-{index}">
-										<span class="label-text">Discount Amount</span>
-									</label>
-									<input 
-										id="additional-discount-amount-{index}"
-										type="number" 
-										step="0.01"
-										min="0"
-										bind:value={discount.discountAmount}
-										class="input input-bordered input-sm"
-										placeholder="Enter discount amount"
-										disabled={loading}
-									/>
-								</div>
-								<div class="form-control">
-									<label class="label" for="additional-discount-label-{index}">
-										<span class="label-text">Label *</span>
-									</label>
-									<input 
-										id="additional-discount-label-{index}"
-										type="text"
-										bind:value={discount.label}
-										class="input input-bordered input-sm"
-										placeholder="e.g., Early bird discount"
-										disabled={loading}
-									/>
-								</div>
-								<div class="form-control">
-									<label class="label" for="additional-discount-remarks-{index}">
-										<span class="label-text">Remarks</span>
-									</label>
-									<input 
-										id="additional-discount-remarks-{index}"
-										type="text"
-										bind:value={discount.remarks}
-										class="input input-bordered input-sm"
-										placeholder="Additional notes"
-										disabled={loading}
-									/>
-								</div>
-							</div>
-							<button 
-								type="button"
-								class="btn btn-error btn-sm btn-circle mt-8"
-								on:click={() => removeDiscount(index)}
-								disabled={loading}
-							>
-								<Trash2 class="w-4 h-4" />
-							</button>
-						</div>
-					</div>
-				{/each}
-
+			<!-- Footer Actions -->
+			<div class="p-4 bg-base-100 border-t border-base-200 flex justify-end gap-3">
 				<button 
-					type="button"
-					class="btn btn-outline btn-sm w-full"
-					on:click={addDiscount}
+					type="button" 
+					class="btn btn-ghost"
+					on:click={closeModal}
 					disabled={loading}
 				>
-					<Plus class="w-4 h-4 mr-2" />
-					Add Discount
+					Cancel
 				</button>
-
-				<!-- Payment Summary -->
-				{#if validDiscounts.length > 0}
-					<div class="bg-info/10 p-4 rounded-lg">
-						<h5 class="font-semibold text-sm mb-3">Payment Summary</h5>
-						<div class="space-y-2 text-sm">
-							<div class="flex justify-between">
-								<span>Original Amount:</span>
-								<span class="font-medium">{formatCurrency(amountPaid)}</span>
-							</div>
-							{#each validDiscounts as discount}
-								<div class="flex justify-between text-success">
-									<span class="truncate mr-2">{discount.label}:</span>
-									<span>-{formatCurrency(discount.discountAmount)}</span>
-								</div>
-							{/each}
-							<div class="divider my-2"></div>
-							<div class="flex justify-between font-bold text-lg">
-								<span>Net Amount:</span>
-								<span class="text-primary">{formatCurrency(netAmount)}</span>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Payment Date -->
-				<div class="form-control">
-					<label class="label" for="additionalDate">
-						<span class="label-text">Payment Date & Time *</span>
-					</label>
-					<input 
-						id="additionalDate"
-						type="datetime-local" 
-						bind:value={date}
-						class="input input-bordered"
-						disabled={loading}
-						required
-					/>
-				</div>
-
-				<!-- Remarks -->
-				<div class="form-control">
-					<label class="label" for="additionalRemarks">
-						<span class="label-text">Remarks</span>
-					</label>
-					<textarea 
-						id="additionalRemarks"
-						bind:value={remarks}
-						class="textarea textarea-bordered"
-						placeholder="Additional notes..."
-						disabled={loading}
-						rows="2"
-					></textarea>
-				</div>
-
-				<!-- Error Display -->
-				{#if error}
-					<div class="alert alert-error">
-						<AlertCircle class="w-5 h-5" />
-						<span>{error}</span>
-					</div>
-				{/if}
-
-				<!-- Success Display -->
-				{#if success}
-					<div class="alert alert-success">
-						<svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-						<span>Additional payment processed successfully!</span>
-					</div>
-				{/if}
-
-				<!-- Form Actions -->
-				<div class="modal-action sticky bottom-0 bg-base-100 pt-4 border-t">
-					<button 
-						type="button" 
-						class="btn btn-ghost"
-						on:click={closeModal}
-						disabled={loading}
-					>
-						Cancel
-					</button>
-					<button 
-						type="submit" 
-						class="btn btn-primary"
-						disabled={loading || success}
-					>
-						{#if loading}
-							<span class="loading loading-spinner loading-sm"></span>
-							Processing...
-						{:else}
-							Submit Payment
-						{/if}
-					</button>
-				</div>
-			</form>
+				<button 
+					type="button" 
+					class="btn btn-primary px-8"
+					on:click={handleSubmit}
+					disabled={loading || success}
+				>
+					{#if loading}
+						<span class="loading loading-spinner loading-sm"></span>
+					{:else}
+						Confirm Payment
+					{/if}
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
