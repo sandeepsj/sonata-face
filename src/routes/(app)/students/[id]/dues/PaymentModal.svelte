@@ -18,11 +18,18 @@
 
 	const dispatch = createEventDispatcher();
 
+	// Helper to get local ISO string (YYYY-MM-DDTHH:mm)
+	function getLocalISOString() {
+		const now = new Date();
+		const offset = now.getTimezoneOffset() * 60000;
+		return new Date(now.getTime() - offset).toISOString().slice(0, 16);
+	}
+
 	// Payment form state
 	let amountPaid = 0;
 	let label = '';
 	let remarks = '';
-	let date = new Date().toISOString().slice(0, 16);
+	let date = getLocalISOString();
 	let discounts: PaymentDiscount[] = [];
 
 	// Form validation and UI state
@@ -41,7 +48,7 @@
 		amountPaid = due.dueAmount;
 		label = `Payment for ${due.courseName} - Term ${due.termNumber}, ${due.termYear}`;
 		remarks = '';
-		date = new Date().toISOString().slice(0, 16);
+		date = getLocalISOString();
 		discounts = [];
 		error = '';
 		success = false;
@@ -90,7 +97,7 @@
 				courseName: due!.courseName,
 				label: label || undefined,
 				remarks: remarks || undefined,
-				date: new Date(date).toISOString()
+				date: `${date}:00.000Z` // Send as Indian time (server assumes IST)
 			};
 
 			// Create the payment
