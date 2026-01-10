@@ -105,7 +105,14 @@
 			courseFeatures.sort((a, b) => a.term - b.term);
 		});
 
-		return grouped;
+		// Sort the map entries by course name
+		const sortedEntries = Array.from(grouped.entries()).sort((a, b) => {
+			const nameA = a[1][0]?.course.name || "";
+			const nameB = b[1][0]?.course.name || "";
+			return nameA.localeCompare(nameB);
+		});
+
+		return new Map(sortedEntries);
 	}
 
 	/**
