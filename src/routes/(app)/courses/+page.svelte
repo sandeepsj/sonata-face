@@ -269,7 +269,7 @@
 							type="button"
 							class="course-row"
 							class:is-sel={isSel}
-							on:click={() => selectCourse(g.course.id)}
+							onclick={() => selectCourse(g.course.id)}
 						>
 							<span class="course-avatar">{initials(g.course.name)}</span>
 							<span class="course-row-body">
@@ -328,14 +328,14 @@
 					</header>
 
 					<div class="course-tabs">
-						<button class:is-active={activeTab === 'schedule'} on:click={() => (activeTab = 'schedule')}>
+						<button class:is-active={activeTab === 'schedule'} onclick={() => (activeTab = 'schedule')}>
 							Terms &amp; schedule
 						</button>
-						<button class:is-active={activeTab === 'students'} on:click={() => (activeTab = 'students')}>
+						<button class:is-active={activeTab === 'students'} onclick={() => (activeTab = 'students')}>
 							Students <span class="tab-badge">{activeStudentCount}</span>
 						</button>
-						<button class:is-active={activeTab === 'policy'} on:click={() => (activeTab = 'policy')}>Fee policy</button>
-						<button class:is-active={activeTab === 'analytics'} on:click={() => (activeTab = 'analytics')}>Analytics</button>
+						<button class:is-active={activeTab === 'policy'} onclick={() => (activeTab = 'policy')}>Fee policy</button>
+						<button class:is-active={activeTab === 'analytics'} onclick={() => (activeTab = 'analytics')}>Analytics</button>
 					</div>
 
 					{#if activeTab === 'schedule'}
