@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { PaymentService, type DateRangeParams } from '$lib/api/paymentService';
 	import type { Payment } from '$lib/types/payment';
-	import { Calendar, Filter, Download, AlertCircle } from 'lucide-svelte';
+	import { Calendar, Filter, Download, Printer, AlertCircle } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
 	import Select from '$lib/components/Select.svelte';
@@ -109,6 +109,25 @@
 		endDate = formatDateForInput(new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59));
 		loadPayments();
 	}
+
+	function printReport() {
+		// The print-only block in the template renders the on-screen state in
+		// a paper-friendly layout; the @media print stylesheet hides everything else.
+		window.print();
+	}
+
+	function todayStr(): string {
+		return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+	}
+
+	const GROUP_LABELS: Record<GroupBy, string> = {
+		course: 'Course',
+		month: 'Month',
+		type: 'Type',
+		label: 'Label',
+		term: 'Term',
+		none: 'Total'
+	};
 
 	function formatRangeLabel(s: string, e: string): string {
 		if (!s || !e) return '';
@@ -264,6 +283,9 @@
 				<p class="page-subtitle">Track collections across the school by date, course or type.</p>
 			</div>
 			<div style="display: flex; gap: 8px;">
+				<button class="btn-s btn-secondary-s" onclick={printReport} disabled={payments.length === 0}>
+					<Printer size={14} strokeWidth={1.6} /> Print
+				</button>
 				<button class="btn-s btn-primary-s" onclick={downloadCSV}>
 					<Download size={14} strokeWidth={1.6} /> Export CSV
 				</button>
@@ -471,6 +493,93 @@
 			{/if}
 		</div>
 	</div>
+
+	<!-- Print-only block: rendered only on @media print -->
+	<div class="pmt-print">
+		<div class="print-header">
+			<div>
+				<div class="print-brand">Revathi <em>Arts</em> &amp; Music School</div>
+				<div class="print-title">Payments report · {formatRangeLabel(startDate, endDate)}</div>
+				<div class="print-meta">
+					{#if selectedCourse}Course: {selectedCourse}{:else}All courses{/if}
+					· {selectedType ? (selectedType === 'REGULAR' ? 'Regular' : 'Additional') : 'All types'}
+					· Generated {todayStr()}
+				</div>
+			</div>
+			<div class="print-totals">
+				<div><span class="print-totals-label">Fee cleared</span> ₹{totalFeeCleared.toLocaleString('en-IN')}</div>
+				<div><span class="print-totals-label">Collected</span> ₹{totalCollected.toLocaleString('en-IN')}</div>
+				<div><span class="print-totals-label">Discount</span> ₹{totalDiscount.toLocaleString('en-IN')}</div>
+				<div><span class="print-totals-label">Txns</span> {totalPayments}</div>
+			</div>
+		</div>
+
+		{#if summaryRows.length > 0}
+			<section class="print-section">
+				<h3 class="print-section-title">Summary by {GROUP_LABELS[summaryGroupBy].toLowerCase()}</h3>
+				<table class="print-tbl">
+					<thead>
+						<tr>
+							<th>{GROUP_LABELS[summaryGroupBy]}</th>
+							<th class="num">Count</th>
+							<th class="num">Amount</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each summaryRows as r (r.key)}
+							<tr>
+								<td>{r.label}{#if r.sub} <span style="color:#777">· {r.sub}</span>{/if}</td>
+								<td class="num">{r.count}</td>
+								<td class="num">₹{r.amount.toLocaleString('en-IN')}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</section>
+		{/if}
+
+		<section class="print-section">
+			<h3 class="print-section-title">Records ({totalPayments})</h3>
+			<table class="print-tbl">
+				<thead>
+					<tr>
+						<th>R.No</th>
+						<th>Date</th>
+						<th>Student</th>
+						<th>Course</th>
+						<th>Year</th>
+						<th>Term</th>
+						<th>Type</th>
+						<th class="num">Paid</th>
+						<th class="num">Discount</th>
+						<th class="num">Total</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each payments as p}
+						<tr>
+							<td>{p.id}</td>
+							<td>{formatDateShort(p.date)}</td>
+							<td>{p.student?.studentName ?? '—'}</td>
+							<td>{p.courseName ?? '—'}</td>
+							<td>{p.feeStructure?.year ?? '—'}</td>
+							<td>{p.feeStructure?.term ?? '—'}</td>
+							<td>{p.paymentType === 'REGULAR' ? 'Regular' : 'Additional'}</td>
+							<td class="num">₹{p.amountPaid.toLocaleString('en-IN')}</td>
+							<td class="num">₹{(p.discountAmount ?? 0).toLocaleString('en-IN')}</td>
+							<td class="num">₹{(p.amountPaid + (p.discountAmount ?? 0)).toLocaleString('en-IN')}</td>
+						</tr>
+					{/each}
+					<tr class="print-subtotal">
+						<td colspan="7" style="text-align: right;">Total</td>
+						<td class="num">₹{totalCollected.toLocaleString('en-IN')}</td>
+						<td class="num">₹{totalDiscount.toLocaleString('en-IN')}</td>
+						<td class="num">₹{totalAmount.toLocaleString('en-IN')}</td>
+					</tr>
+				</tbody>
+			</table>
+		</section>
+	</div>
 </div>
 
 <style>
@@ -555,5 +664,72 @@
 	@media (max-width: 700px) {
 		.summary-row { grid-template-columns: 1fr auto; }
 		.summary-bar, .summary-count { display: none; }
+	}
+
+	/* ---------- Print ---------- */
+	.pmt-print { display: none; }
+
+	@media print {
+		:global(body) :global(*) { visibility: hidden !important; }
+		.pmt-print, .pmt-print * { visibility: visible !important; }
+		.pmt-print {
+			display: block;
+			position: absolute;
+			inset: 0;
+			padding: 18mm 14mm;
+			background: white;
+			color: #1a1a1a;
+			font-family: var(--font-sans);
+		}
+		.print-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: flex-start;
+			gap: 24px;
+			border-bottom: 1px solid #d0d0d0;
+			padding-bottom: 10px;
+			margin-bottom: 16px;
+		}
+		.print-brand { font-family: var(--font-serif); font-size: 18px; }
+		.print-brand em { font-style: italic; color: #444; }
+		.print-title { font-family: var(--font-serif); font-size: 22px; font-weight: 500; margin-top: 4px; }
+		.print-meta { font-size: 11px; color: #555; margin-top: 4px; }
+		.print-totals { font-size: 12px; text-align: right; line-height: 1.6; }
+		.print-totals-label {
+			display: inline-block;
+			min-width: 80px;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: #777;
+			font-size: 10px;
+			margin-right: 6px;
+		}
+		.print-section { margin-bottom: 18px; page-break-inside: avoid; }
+		.print-section-title {
+			font-family: var(--font-serif);
+			font-size: 15px;
+			font-weight: 500;
+			margin: 14px 0 6px;
+			padding-bottom: 4px;
+			border-bottom: 1px solid #e6e6e6;
+		}
+		.print-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+		.print-tbl th, .print-tbl td {
+			padding: 5px 6px;
+			border-bottom: 1px solid #ececec;
+			text-align: left;
+			vertical-align: top;
+		}
+		.print-tbl th {
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			font-size: 9.5px;
+			color: #555;
+			font-weight: 500;
+			background: #f6f6f6;
+		}
+		.print-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+		.print-subtotal td { font-weight: 600; border-top: 1px solid #ccc; border-bottom: 0; padding-top: 6px; }
+		@page { margin: 12mm; }
 	}
 </style>
