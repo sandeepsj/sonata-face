@@ -106,7 +106,6 @@
 <div class="app-shell" data-collapsed={$sidebarCollapsedStore}>
 	<aside class="sidebar">
 		<div class="sb-brand">
-			<div class="sb-mark">R</div>
 			{#if !$sidebarCollapsedStore}
 				<div>
 					<div class="sb-name">Revathi <em>Arts</em></div>
