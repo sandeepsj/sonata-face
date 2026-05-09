@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { Save, X, Calendar, Users } from 'lucide-svelte';
+	import { Save, X, ArrowLeft } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
-	import { StudentService, type Student } from '$lib';
+	import { StudentService } from '$lib';
 
-	// Form data with all possible fields
 	let formData = {
 		studentName: '',
 		admissionDate: '',
@@ -20,56 +19,29 @@
 	let saving = false;
 	let errors: Record<string, string> = {};
 
-	// Validation
 	function validateForm() {
 		errors = {};
-		
-		if (!formData.studentName.trim()) {
-			errors.studentName = 'Student name is required';
-		}
-		
-		if (formData.contactNo && !/^\d{10}$/.test(formData.contactNo.replace(/\D/g, ''))) {
+		if (!formData.studentName.trim()) errors.studentName = 'Student name is required';
+		if (formData.contactNo && !/^\d{10}$/.test(formData.contactNo.replace(/\D/g, '')))
 			errors.contactNo = 'Please enter a valid 10-digit phone number';
-		}
-		
-		if (formData.pinCode && !/^\d{6}$/.test(formData.pinCode)) {
+		if (formData.pinCode && !/^\d{6}$/.test(formData.pinCode))
 			errors.pinCode = 'Please enter a valid 6-digit pin code';
-		}
-
-		// Validate dates if provided
-		if (formData.admissionDate) {
-			const admissionDate = new Date(formData.admissionDate);
-			if (isNaN(admissionDate.getTime())) {
-				errors.admissionDate = 'Please enter a valid admission date';
-			}
-		}
-
+		if (formData.admissionDate && isNaN(new Date(formData.admissionDate).getTime()))
+			errors.admissionDate = 'Please enter a valid admission date';
 		if (formData.dob) {
-			const dobDate = new Date(formData.dob);
-			if (isNaN(dobDate.getTime())) {
-				errors.dob = 'Please enter a valid date of birth';
-			} else if (dobDate > new Date()) {
-				errors.dob = 'Date of birth cannot be in the future';
-			}
+			const d = new Date(formData.dob);
+			if (isNaN(d.getTime())) errors.dob = 'Please enter a valid date of birth';
+			else if (d > new Date()) errors.dob = 'Date of birth cannot be in the future';
 		}
-
 		return Object.keys(errors).length === 0;
 	}
 
-	// Save function with real API call
 	async function saveStudent() {
 		if (!validateForm()) return;
-		
 		saving = true;
-		
 		try {
-			// Prepare data for API - only send non-empty fields
 			const studentData: Partial<typeof formData> = {};
-			
-			// Always include student name (required)
 			studentData.studentName = formData.studentName.trim();
-			
-			// Include other fields only if they have values
 			if (formData.admissionDate) studentData.admissionDate = formData.admissionDate;
 			if (formData.contactNo) studentData.contactNo = formData.contactNo.trim();
 			if (formData.dob) studentData.dob = formData.dob;
@@ -78,20 +50,12 @@
 			if (formData.address) studentData.address = formData.address.trim();
 			if (formData.pinCode) studentData.pinCode = formData.pinCode;
 			if (formData.remarks) studentData.remarks = formData.remarks.trim();
-			if (formData.status !== 'active') studentData.status = formData.status; // Only include if not default
-			
-			console.log('Creating student with data:', studentData);
-			
-			// Call the API to create student
-			const createdStudent = await StudentService.createStudent(studentData);
-			
-			console.log('Student created successfully:', createdStudent);
-			
-			// Navigate to the new student's detail page
-			goto(`/students/${createdStudent.admissionNo}`);
+			if (formData.status !== 'active') studentData.status = formData.status;
+
+			const created = await StudentService.createStudent(studentData);
+			goto(`/students/${created.admissionNo}`);
 		} catch (error) {
 			console.error('Error creating student:', error);
-			// You could add a toast notification here for error feedback
 		} finally {
 			saving = false;
 		}
@@ -101,139 +65,66 @@
 		goto('/students');
 	}
 
-	// Set today as default admission date
 	function setTodayAsAdmissionDate() {
-		const today = new Date().toISOString().split('T')[0];
-		formData.admissionDate = today;
+		formData.admissionDate = new Date().toISOString().split('T')[0];
 	}
 </script>
 
 <svelte:head>
-	<title>Add New Student - Revathi Arts and Music School</title>
+	<title>Add student — Revathi Arts</title>
 </svelte:head>
 
-<div class="container mx-auto p-6">
-	<!-- Header -->
-	<div class="card bg-base-100 shadow-sm mb-6">
-		<div class="card-body">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center space-x-3">
-					<Users class="w-8 h-8 text-primary" />
-					<div>
-						<h1 class="text-3xl font-bold">Add New Student</h1>
-						<p class="text-base-content/70">Create a new student record</p>
-					</div>
-				</div>
-				<div class="flex space-x-2">
-					<button 
-						class="btn btn-outline btn-sm" 
-						on:click={cancel}
-						disabled={saving}
-					>
-						<X class="w-4 h-4 mr-2" />
-						Cancel
-					</button>
-					<button 
-						class="btn btn-primary btn-sm" 
-						on:click={saveStudent}
-						disabled={saving}
-					>
-						{#if saving}
-							<span class="loading loading-spinner loading-xs mr-2"></span>
-							Creating...
-						{:else}
-							<Save class="w-4 h-4 mr-2" />
-							Create Student
-						{/if}
-					</button>
-				</div>
+<div class="page">
+	<button class="btn-s btn-ghost-s btn-sm-s" on:click={cancel} style="margin-bottom: 12px;">
+		<ArrowLeft size={14} strokeWidth={1.6} /> All students
+	</button>
+
+	<div class="page-head">
+		<div class="page-head-row">
+			<div>
+				<h1 class="page-title">Admit a <em>student</em></h1>
+				<p class="page-subtitle">Create a new student record.</p>
+			</div>
+			<div style="display: flex; gap: 8px;">
+				<button class="btn-s btn-secondary-s" on:click={cancel} disabled={saving}>
+					<X size={14} strokeWidth={1.6} /> Cancel
+				</button>
+				<button class="btn-s btn-primary-s" on:click={saveStudent} disabled={saving}>
+					{#if saving}<span class="spinner"></span>Creating…{:else}<Save size={14} strokeWidth={1.8} /> Admit student{/if}
+				</button>
 			</div>
 		</div>
 	</div>
 
-	<div class="space-y-6">
-		<!-- Basic Information Form -->
-		<div class="card bg-base-100 shadow-sm">
-			<div class="card-body">
-				<h3 class="text-lg font-semibold mb-4">Basic Information</h3>
-				
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Student Name *</span>
-						</label>
-						<input 
-							type="text" 
-							class="input input-bordered"
-							class:input-error={errors.studentName}
-							bind:value={formData.studentName}
-							placeholder="Enter student's full name"
-							disabled={saving}
-							required
-						/>
-						{#if errors.studentName}
-							<label class="label">
-								<span class="label-text-alt text-error">{errors.studentName}</span>
-							</label>
-						{/if}
+	<div class="col-s">
+		<div class="card-s">
+			<div class="card-header">
+				<h3 class="card-title-s">Personal <em style="color: var(--accent); font-style: italic;">details</em></h3>
+			</div>
+			<div class="card-body-s">
+				<div class="grid-2">
+					<div class="field">
+						<label>Student name *</label>
+						<input class="input-s" class:input-error-s={errors.studentName} bind:value={formData.studentName} placeholder="Full name" disabled={saving} required />
+						{#if errors.studentName}<span class="field-error">{errors.studentName}</span>{/if}
 					</div>
-
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Admission Date</span>
-							<button 
-								type="button"
-								class="label-text-alt link link-primary"
-								on:click={setTodayAsAdmissionDate}
-								disabled={saving}
-							>
-								Set Today
-							</button>
+					<div class="field">
+						<label style="display: flex; justify-content: space-between;">
+							<span>Admission date</span>
+							<button type="button" style="color: var(--accent); background: transparent; border: 0; cursor: pointer; font-size: 11px; padding: 0;" on:click={setTodayAsAdmissionDate} disabled={saving}>Set today</button>
 						</label>
-						<input 
-							type="date" 
-							class="input input-bordered"
-							class:input-error={errors.admissionDate}
-							bind:value={formData.admissionDate}
-							disabled={saving}
-						/>
-						{#if errors.admissionDate}
-							<label class="label">
-								<span class="label-text-alt text-error">{errors.admissionDate}</span>
-							</label>
-						{/if}
-						<label class="label">
-							<span class="label-text-alt">Leave empty to use current date</span>
-						</label>
+						<input type="date" class="input-s" class:input-error-s={errors.admissionDate} bind:value={formData.admissionDate} disabled={saving} />
+						{#if errors.admissionDate}<span class="field-error">{errors.admissionDate}</span>{/if}
+						<span class="hint">Leave empty to use the current date.</span>
 					</div>
-
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Date of Birth</span>
-						</label>
-						<input 
-							type="date" 
-							class="input input-bordered"
-							class:input-error={errors.dob}
-							bind:value={formData.dob}
-							disabled={saving}
-						/>
-						{#if errors.dob}
-							<label class="label">
-								<span class="label-text-alt text-error">{errors.dob}</span>
-							</label>
-						{/if}
+					<div class="field">
+						<label>Date of birth</label>
+						<input type="date" class="input-s" class:input-error-s={errors.dob} bind:value={formData.dob} disabled={saving} />
+						{#if errors.dob}<span class="field-error">{errors.dob}</span>{/if}
 					</div>
-
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Status</span>
-						</label>
-						<select 
-							class="select select-bordered"
-							bind:value={formData.status}
-							disabled={saving}
-						>
+					<div class="field">
+						<label>Status</label>
+						<select class="select-s" bind:value={formData.status} disabled={saving}>
 							<option value="active">Active</option>
 							<option value="closed">Closed</option>
 							<option value="suspended">Suspended</option>
@@ -243,116 +134,56 @@
 			</div>
 		</div>
 
-		<!-- Academic Information Form -->
-		<div class="card bg-base-100 shadow-sm">
-			<div class="card-body">
-				<h3 class="text-lg font-semibold mb-4">Academic Information</h3>
-				
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Class</span>
-						</label>
-						<input 
-							type="text" 
-							class="input input-bordered"
-							bind:value={formData.className}
-							placeholder="e.g., 10A, Grade 5"
-							disabled={saving}
-						/>
+		<div class="card-s">
+			<div class="card-header">
+				<h3 class="card-title-s">School &amp; <em style="color: var(--accent); font-style: italic;">academics</em></h3>
+			</div>
+			<div class="card-body-s">
+				<div class="grid-2">
+					<div class="field">
+						<label>Class</label>
+						<input class="input-s" bind:value={formData.className} placeholder="e.g. 10A, Grade 5" disabled={saving} />
 					</div>
-
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">School</span>
-						</label>
-						<input 
-							type="text" 
-							class="input input-bordered"
-							bind:value={formData.school}
-							placeholder="Enter school name"
-							disabled={saving}
-						/>
+					<div class="field">
+						<label>School</label>
+						<input class="input-s" bind:value={formData.school} placeholder="School name" disabled={saving} />
 					</div>
 				</div>
 			</div>
 		</div>
 
-		<!-- Contact Information Form -->
-		<div class="card bg-base-100 shadow-sm">
-			<div class="card-body">
-				<h3 class="text-lg font-semibold mb-4">Contact Information</h3>
-				
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Contact Number</span>
-						</label>
-						<input 
-							type="tel" 
-							class="input input-bordered"
-							class:input-error={errors.contactNo}
-							bind:value={formData.contactNo}
-							placeholder="Enter 10-digit phone number"
-							disabled={saving}
-						/>
-						{#if errors.contactNo}
-							<label class="label">
-								<span class="label-text-alt text-error">{errors.contactNo}</span>
-							</label>
-						{/if}
+		<div class="card-s">
+			<div class="card-header">
+				<h3 class="card-title-s">Contact</h3>
+			</div>
+			<div class="card-body-s">
+				<div class="grid-2">
+					<div class="field">
+						<label>Phone</label>
+						<input type="tel" class="input-s" class:input-error-s={errors.contactNo} bind:value={formData.contactNo} placeholder="10-digit number" disabled={saving} />
+						{#if errors.contactNo}<span class="field-error">{errors.contactNo}</span>{/if}
 					</div>
-
-					<div class="form-control">
-						<label class="label">
-							<span class="label-text font-medium">Pin Code</span>
-						</label>
-						<input 
-							type="text" 
-							class="input input-bordered"
-							class:input-error={errors.pinCode}
-							bind:value={formData.pinCode}
-							placeholder="Enter 6-digit pin code"
-							maxlength="6"
-							disabled={saving}
-						/>
-						{#if errors.pinCode}
-							<label class="label">
-								<span class="label-text-alt text-error">{errors.pinCode}</span>
-							</label>
-						{/if}
+					<div class="field">
+						<label>Pin code</label>
+						<input class="input-s" class:input-error-s={errors.pinCode} bind:value={formData.pinCode} placeholder="6-digit code" maxlength="6" disabled={saving} />
+						{#if errors.pinCode}<span class="field-error">{errors.pinCode}</span>{/if}
 					</div>
-
-					<div class="form-control md:col-span-2">
-						<label class="label">
-							<span class="label-text font-medium">Address</span>
-						</label>
-						<textarea 
-							class="textarea textarea-bordered h-20"
-							bind:value={formData.address}
-							placeholder="Enter full address"
-							disabled={saving}
-						></textarea>
+					<div class="field" style="grid-column: span 2;">
+						<label>Address</label>
+						<textarea class="input-s" bind:value={formData.address} placeholder="Full address" disabled={saving} style="min-height: 70px; resize: vertical;"></textarea>
 					</div>
 				</div>
 			</div>
 		</div>
 
-		<!-- Additional Information Form -->
-		<div class="card bg-base-100 shadow-sm">
-			<div class="card-body">
-				<h3 class="text-lg font-semibold mb-4">Additional Information</h3>
-				
-				<div class="form-control">
-					<label class="label">
-						<span class="label-text font-medium">Remarks</span>
-					</label>
-					<textarea 
-						class="textarea textarea-bordered h-24"
-						bind:value={formData.remarks}
-						placeholder="Add any additional notes or remarks about the student"
-						disabled={saving}
-					></textarea>
+		<div class="card-s">
+			<div class="card-header">
+				<h3 class="card-title-s">Notes</h3>
+			</div>
+			<div class="card-body-s">
+				<div class="field">
+					<label>Remarks</label>
+					<textarea class="input-s" bind:value={formData.remarks} placeholder="Anything else worth noting…" disabled={saving} style="min-height: 100px; resize: vertical;"></textarea>
 				</div>
 			</div>
 		</div>

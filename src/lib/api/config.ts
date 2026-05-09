@@ -1,6 +1,8 @@
+import { config as appConfig } from '$lib/config';
+
 // API configuration and base URL
 export const API_CONFIG = {
-	BASE_URL: 'https://sonata-brain.onrender.com',
+	BASE_URL: appConfig.apiBaseUrl,
 	ENDPOINTS: {
 		STUDENTS: '/api/students',
 		COURSES: '/api/courses',

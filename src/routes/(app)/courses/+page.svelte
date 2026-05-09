@@ -5,931 +5,717 @@
 		StudentSessionService,
 		type Course,
 		type FeeStructure,
-		type StudentSession,
-	} from "$lib";
-	import { Users, Download, ChevronDown, ChevronUp } from "lucide-svelte";
+		type StudentSession
+	} from '$lib';
+	import { Users, Pencil, MoreHorizontal, Plus, TrendingUp, BookOpen } from 'lucide-svelte';
+	import Badge from '$lib/components/Badge.svelte';
+	import Select from '$lib/components/Select.svelte';
 
-	// Component state
+	type CourseGroup = { course: Course; structures: FeeStructure[]; yearlyFee: number; termsPerYear: number };
+	type DetailTab = 'schedule' | 'students' | 'policy' | 'analytics';
+
 	let feeStructures: FeeStructure[] = [];
 	let loading = true;
-	let error = "";
+	let error = '';
 
-	// Student session state
-	let expandedCourses = new Set<string>();
-	let studentSessions = new Map<string, StudentSession[]>();
-	let loadingStudents = new Set<string>();
-	let studentSearchYear: number | null = null;
-	let studentSearchTerm: number | null = null;
+	let selectedCourseId: string | null = null;
+	let activeTab: DetailTab = 'schedule';
 
-	// Fee Structure expansion state
-	let expandedFeeStructures = new Set<string>();
+	let detailSessions: StudentSession[] = [];
+	let loadingSessions = false;
 
-	// Subscribe to fee structure store
-	$: storeState = $feeStructureStore;
+	let courseStudentCounts = new Map<string, number>();
 
-	// View state
-	let selectedYear: number;
-	let selectedCourse: string | null = null;
-	let viewMode: "by-course" | "by-year" = "by-year";
-
-	// Generate year range: 10 years back to 1 year future (in reverse order)
 	const currentYear = new Date().getFullYear();
-	const availableYears = Array.from(
-		{ length: 12 },
-		(_, i) => currentYear + 1 - i,
-	);
+	const availableYears = Array.from({ length: 12 }, (_, i) => currentYear + 1 - i);
+	let selectedYear: number = currentYear;
 
-	// Set default to current year
-	selectedYear = currentYear;
+	$: courseGroups = buildCourseGroups(feeStructures);
+	$: selectedGroup = courseGroups.find((g) => g.course.id === selectedCourseId) ?? courseGroups[0] ?? null;
+	$: termFee = selectedGroup ? (selectedGroup.structures[0]?.amount ?? 0) : 0;
+	$: annualFee = selectedGroup?.yearlyFee ?? 0;
+	$: stats = computeStats(courseGroups, courseStudentCounts);
 
-	// Computed values - extract unique courses from loaded fee structures
-	$: uniqueCourses = getUniqueCoursesFromFeeStructures(feeStructures);
-
-	// Filter fee structures based on selections
-	$: filteredFeeStructures = filterFeeStructures(
-		feeStructures,
-		viewMode,
-		selectedCourse,
-	);
-	$: groupedFeeStructures = groupFeeStructuresByCourse(filteredFeeStructures);
-
-	/**
-	 * Filter fee structures based on view mode and selected course
-	 */
-	function filterFeeStructures(
-		structures: FeeStructure[],
-		mode: "by-course" | "by-year",
-		courseId: string | null,
-	): FeeStructure[] {
-		// If in 'by-course' mode and a specific course is selected, filter by that course
-		if (mode === "by-course" && courseId) {
-			return structures.filter((fs) => fs.course.id === courseId);
+	function buildCourseGroups(structures: FeeStructure[]): CourseGroup[] {
+		const map = new Map<string, FeeStructure[]>();
+		for (const fs of structures) {
+			if (!map.has(fs.course.id)) map.set(fs.course.id, []);
+			map.get(fs.course.id)!.push(fs);
 		}
-		// Otherwise, return all structures (show all courses for the selected year)
-		return structures;
-	}
-
-	/**
-	 * Extract unique courses from fee structures
-	 * Returns array of Course objects with id and name
-	 */
-	function getUniqueCoursesFromFeeStructures(
-		structures: FeeStructure[],
-	): Course[] {
-		const coursesMap = new Map<string, Course>();
-		structures.forEach((fs) => {
-			if (!coursesMap.has(fs.course.id)) {
-				coursesMap.set(fs.course.id, fs.course);
-			}
-		});
-		return Array.from(coursesMap.values()).sort((a, b) =>
-			a.name.localeCompare(b.name),
-		);
-	}
-
-	function groupFeeStructuresByCourse(
-		structures: FeeStructure[],
-	): Map<string, FeeStructure[]> {
-		const grouped = new Map<string, FeeStructure[]>();
-
-		structures.forEach((fs) => {
-			const courseId = fs.course.id;
-			if (!grouped.has(courseId)) {
-				grouped.set(courseId, []);
-			}
-			grouped.get(courseId)!.push(fs);
-		});
-
-		// Sort each group by term
-		grouped.forEach((courseFeatures) => {
-			courseFeatures.sort((a, b) => a.term - b.term);
-		});
-
-		// Sort the map entries by course name
-		const sortedEntries = Array.from(grouped.entries()).sort((a, b) => {
-			const nameA = a[1][0]?.course.name || "";
-			const nameB = b[1][0]?.course.name || "";
-			return nameA.localeCompare(nameB);
-		});
-
-		return new Map(sortedEntries);
-	}
-
-	/**
-	 * Calculate month range for a specific term based on course's terms per year
-	 * Term 1 always starts with January, terms are evenly distributed throughout the year
-	 */
-	function getTermMonthRange(
-		termNumber: number,
-		termsPerYear: number,
-	): string {
-		// Calendar year months (January to December)
-		const months = [
-			"Jan",
-			"Feb",
-			"Mar",
-			"Apr",
-			"May",
-			"Jun",
-			"Jul",
-			"Aug",
-			"Sep",
-			"Oct",
-			"Nov",
-			"Dec",
-		];
-
-		if (termsPerYear <= 0 || termNumber <= 0 || termNumber > termsPerYear) {
-			return "Invalid";
+		const groups: CourseGroup[] = [];
+		for (const [, items] of map) {
+			items.sort((a, b) => a.term - b.term);
+			const course = items[0].course;
+			groups.push({
+				course,
+				structures: items,
+				yearlyFee: FeeStructureService.calculateYearlyFee(items),
+				termsPerYear: FeeStructureService.getTermsPerYear(course.id, selectedYear, structures) || items.length
+			});
 		}
+		groups.sort((a, b) => a.course.name.localeCompare(b.course.name));
+		return groups;
+	}
 
-		// Calculate months per term (12 months / number of terms)
+	function computeStats(groups: CourseGroup[], counts: Map<string, number>) {
+		const courseCount = groups.length;
+		const avgTermsPerYear = groups.length
+			? groups.reduce((s, g) => s + (g.termsPerYear || 0), 0) / groups.length
+			: 0;
+		const totalStudents = Array.from(counts.values()).reduce((s, n) => s + n, 0);
+		const avgAnnual = groups.length
+			? Math.round(groups.reduce((s, g) => s + g.yearlyFee, 0) / groups.length)
+			: 0;
+		let topCourse: { name: string; count: number } | null = null;
+		for (const g of groups) {
+			const c = counts.get(g.course.id) ?? 0;
+			if (!topCourse || c > topCourse.count) topCourse = { name: g.course.name, count: c };
+		}
+		return { courseCount, avgTermsPerYear, totalStudents, avgAnnual, topCourse };
+	}
+
+	function getTermMonthRange(termNumber: number, termsPerYear: number): string {
+		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		if (termsPerYear <= 0 || termNumber <= 0 || termNumber > termsPerYear) return '—';
 		const monthsPerTerm = 12 / termsPerYear;
-
-		// Calculate start and end month indices for this term (Term 1 starts at index 0 = January)
-		const startMonthIndex = Math.floor((termNumber - 1) * monthsPerTerm);
-		const endMonthIndex = Math.floor(termNumber * monthsPerTerm) - 1;
-
-		// Handle edge case where end month goes beyond array length
-		const safeEndMonthIndex = Math.min(endMonthIndex, months.length - 1);
-
-		const startMonth = months[startMonthIndex];
-		const endMonth = months[safeEndMonthIndex];
-
-		// If same month (very short terms), show just one month
-		if (startMonth === endMonth) {
-			return startMonth;
-		}
-
-		return `${startMonth} - ${endMonth}`;
+		const startIdx = Math.floor((termNumber - 1) * monthsPerTerm);
+		const endIdx = Math.min(Math.floor(termNumber * monthsPerTerm) - 1, months.length - 1);
+		const start = months[startIdx];
+		const end = months[endIdx];
+		return start === end ? `${start} ${selectedYear}` : `${start} – ${end} ${selectedYear}`;
 	}
 
-	/**
-	 * Get terms per year for a specific course in the selected year
-	 */
-	function getTermsPerYear(courseId: string): number {
-		return FeeStructureService.getTermsPerYear(
-			courseId,
-			selectedYear,
-			feeStructures,
-		);
+	function getTermStatus(termNumber: number, termsPerYear: number): 'closed' | 'active' | 'upcoming' {
+		if (termsPerYear <= 0) return 'upcoming';
+		const now = new Date();
+		const sameYear = now.getFullYear();
+		if (selectedYear < sameYear) return 'closed';
+		if (selectedYear > sameYear) return 'upcoming';
+		const monthsPerTerm = 12 / termsPerYear;
+		const startMonth = Math.floor((termNumber - 1) * monthsPerTerm);
+		const endMonth = Math.floor(termNumber * monthsPerTerm) - 1;
+		const m = now.getMonth();
+		if (m < startMonth) return 'upcoming';
+		if (m > endMonth) return 'closed';
+		return 'active';
 	}
 
-	function handleViewModeChange(mode: "by-course" | "by-year") {
-		viewMode = mode;
-		if (mode === "by-year") {
-			selectedCourse = null;
-		}
-	}
-
-	function resetFilters() {
-		viewMode = "by-year";
-		selectedYear = currentYear;
-		selectedCourse = null;
-	}
-
-	async function loadFeeStructuresForYear(year: number) {
+	async function loadFeeStructures(year: number) {
 		try {
 			loading = true;
-			error = "";
-
-			// Use fee structure store instead of direct API call
-			const feeStructuresData = await feeStructureStore.getByYear(year);
-			feeStructures = feeStructuresData;
+			error = '';
+			feeStructures = await feeStructureStore.getByYear(year);
+			courseStudentCounts = new Map();
+			if (feeStructures.length && !selectedCourseId) {
+				const groups = buildCourseGroups(feeStructures);
+				selectedCourseId = groups[0]?.course.id ?? null;
+			}
+			refreshStudentCounts();
+			if (selectedGroup) loadDetailSessions(selectedGroup.course.name);
 		} catch (err) {
-			console.error("Error loading fee structures:", err);
-			error =
-				err instanceof Error
-					? err.message
-					: "Failed to load fee structure data";
+			error = err instanceof Error ? err.message : 'Failed to load courses';
 		} finally {
 			loading = false;
 		}
 	}
 
-	// Load fee structures when year changes
-	$: if (selectedYear) {
-		loadFeeStructuresForYear(selectedYear);
-	}
-
-	/**
-	 * Toggle fee structure expansion
-	 */
-	function toggleFeeStructure(courseId: string) {
-		if (expandedFeeStructures.has(courseId)) {
-			expandedFeeStructures.delete(courseId);
-		} else {
-			expandedFeeStructures.add(courseId);
-		}
-		expandedFeeStructures = expandedFeeStructures;
-	}
-
-	/**
-	 * Toggle student list for a course
-	 */
-	async function toggleStudentList(
-		courseId: string,
-		courseName: string,
-		event: MouseEvent,
-	) {
-		event.stopPropagation(); // Prevent toggling the card expansion
-		const key = `${courseId}_${selectedYear}_${studentSearchYear || "all"}_${studentSearchTerm || "all"}`;
-
-		if (expandedCourses.has(key)) {
-			expandedCourses.delete(key);
-			expandedCourses = expandedCourses;
-			return;
-		}
-
-		expandedCourses.add(key);
-		expandedCourses = expandedCourses;
-
-		// Load student sessions if not already loaded
-		if (!studentSessions.has(key)) {
-			await loadStudentSessions(courseId, courseName, key);
-		}
-	}
-
-	/**
-	 * Load student sessions based on selected filters
-	 */
-	async function loadStudentSessions(
-		courseId: string,
-		courseName: string,
-		cacheKey: string,
-	) {
-		try {
-			loadingStudents.add(cacheKey);
-			loadingStudents = loadingStudents;
-
-			let sessions: StudentSession[] = [];
-
-			// Call appropriate API based on selected filters
-			if (studentSearchYear !== null && studentSearchTerm !== null) {
-				sessions =
-					await StudentSessionService.getStudentsByCourseYearTerm(
-						courseName,
-						studentSearchYear,
-						studentSearchTerm,
-					);
-			} else if (studentSearchYear !== null) {
-				sessions =
-					await StudentSessionService.getStudentsByCourseAndYear(
-						courseName,
-						studentSearchYear,
-					);
-			} else {
-				sessions =
-					await StudentSessionService.getStudentsByCourse(courseName);
-			}
-
-			studentSessions.set(cacheKey, sessions);
-			studentSessions = studentSessions;
-		} catch (err) {
-			console.error("Error loading student sessions:", err);
-			error =
-				err instanceof Error
-					? err.message
-					: "Failed to load student sessions";
-		} finally {
-			loadingStudents.delete(cacheKey);
-			loadingStudents = loadingStudents;
-		}
-	}
-
-	/**
-	 * Check if a student session is active
-	 */
-	function isSessionActive(session: StudentSession): boolean {
-		return (
-			session.dateOfDisjoining === null ||
-			session.dateOfDisjoining === undefined
+	async function refreshStudentCounts() {
+		const groups = buildCourseGroups(feeStructures);
+		await Promise.all(
+			groups.map(async (g) => {
+				try {
+					const sessions = await StudentSessionService.getStudentsByCourseAndYear(g.course.name, selectedYear);
+					courseStudentCounts.set(g.course.id, sessions.filter(isSessionActive).length);
+					courseStudentCounts = courseStudentCounts;
+				} catch {
+					/* ignore per-course count failures */
+				}
+			})
 		);
 	}
 
-	/**
-	 * Format date for display
-	 */
-	function formatDate(dateString: string | null | undefined): string {
-		if (!dateString) return "N/A";
-		const date = new Date(dateString);
-		return date.toLocaleDateString("en-GB", {
-			day: "2-digit",
-			month: "short",
-			year: "numeric",
-		});
+	async function loadDetailSessions(courseName: string) {
+		try {
+			loadingSessions = true;
+			detailSessions = await StudentSessionService.getStudentsByCourseAndYear(courseName, selectedYear);
+		} catch {
+			detailSessions = [];
+		} finally {
+			loadingSessions = false;
+		}
 	}
 
-	/**
-	 * Apply student search filters
-	 */
-	function applyStudentFilters() {
-		// Clear expanded states and cache when filters change
-		expandedCourses.clear();
-		studentSessions.clear();
-		expandedCourses = expandedCourses;
-		studentSessions = studentSessions;
+	function selectCourse(courseId: string) {
+		selectedCourseId = courseId;
+		const g = courseGroups.find((c) => c.course.id === courseId);
+		if (g) loadDetailSessions(g.course.name);
 	}
 
-	/**
-	 * Reset student search filters
-	 */
-	function resetStudentFilters() {
-		studentSearchYear = null;
-		studentSearchTerm = null;
-		applyStudentFilters();
+	function isSessionActive(s: StudentSession): boolean {
+		return s.dateOfDisjoining === null || s.dateOfDisjoining === undefined;
 	}
 
-	/**
-	 * Download student list as CSV
-	 */
-	function downloadStudentListCSV(
-		courseName: string,
-		sessions: StudentSession[],
-	) {
-		// CSV headers
-		const headers = [
-			"Admission No",
-			"Student Name",
-			"Course",
-			"Date of Joining",
-			"Date of Disjoining",
-			"Status",
-		];
-
-		// CSV rows
-		const rows = sessions.map((session) => [
-			session.student.admissionNo || "",
-			session.student.studentName || "",
-			session.course.name || "",
-			formatDate(session.dateOfJoining),
-			isSessionActive(session)
-				? "Active"
-				: formatDate(session.dateOfDisjoining),
-			isSessionActive(session) ? "Active" : "Inactive",
-		]);
-
-		// Combine headers and rows
-		const csvContent = [
-			headers.join(","),
-			...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
-		].join("\n");
-
-		// Create and download file
-		const blob = new Blob([csvContent], {
-			type: "text/csv;charset=utf-8;",
-		});
-		const link = document.createElement("a");
-		const url = URL.createObjectURL(blob);
-
-		const fileName = `students_${courseName.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.csv`;
-
-		link.setAttribute("href", url);
-		link.setAttribute("download", fileName);
-		link.style.visibility = "hidden";
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
+	function formatDate(d: string | null | undefined): string {
+		if (!d) return '—';
+		try {
+			return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+		} catch {
+			return d;
+		}
 	}
+
+	function initials(name: string): string {
+		return name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((w) => w[0]?.toUpperCase() ?? '')
+			.join('');
+	}
+
+	$: if (selectedYear) loadFeeStructures(selectedYear);
+	$: activeStudentCount = detailSessions.filter(isSessionActive).length;
 </script>
 
 <svelte:head>
-	<title>Courses & Fee Structure - Revathi Arts and Music School</title>
+	<title>Courses — Revathi Arts</title>
 </svelte:head>
 
-<div class="container mx-auto p-6 space-y-6">
-	<!-- Page Header -->
-	<div
-		class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
-	>
-		<div>
-			<h1 class="text-3xl font-bold text-base-content">
-				Courses & Fee Structure
-			</h1>
-			<p class="text-base-content/70 mt-1">
-				View all courses and their fee structures
-			</p>
-		</div>
-
-		<!-- View Mode Controls -->
-		<div class="flex flex-wrap gap-2">
-			<div class="btn-group">
-				<button
-					class="btn btn-sm"
-					class:btn-active={viewMode === "by-year"}
-					on:click={() => handleViewModeChange("by-year")}
-				>
-					By Year
-				</button>
-				<button
-					class="btn btn-sm"
-					class:btn-active={viewMode === "by-course"}
-					on:click={() => handleViewModeChange("by-course")}
-				>
-					By Course
-				</button>
+<div class="page">
+	<div class="page-head">
+		<div class="page-head-row">
+			<div>
+				<h1 class="page-title">Courses &amp; <em>fee</em> structure</h1>
+				<p class="page-subtitle">Programme catalogue with term fees and student enrolments.</p>
+			</div>
+			<div class="field" style="min-width: 140px;">
+				<span class="field-label">Year</span>
+				<Select
+					bind:value={selectedYear}
+					options={availableYears.map((y) => ({ value: y, label: String(y) }))}
+					ariaLabel="Year"
+				/>
 			</div>
 		</div>
 	</div>
 
-	<!-- Filter Controls -->
-	<div class="card bg-base-100 shadow-sm">
-		<div class="card-body p-4">
-			<div class="flex flex-wrap gap-4 items-end">
-				<div class="form-control">
-					<label class="label" for="year-select">
-						<span class="label-text">Select Year</span>
-					</label>
-					<select
-						id="year-select"
-						class="select select-bordered select-sm w-full max-w-xs"
-						bind:value={selectedYear}
-					>
-						{#each availableYears as year}
-							<option value={year}>{year}</option>
-						{/each}
-					</select>
+	<!-- Top stat cards -->
+	<div class="course-stats">
+		<div class="stat-card">
+			<div class="stat-value">{stats.courseCount}</div>
+			<div class="stat-meta">
+				{stats.avgTermsPerYear > 0 ? `across ${stats.avgTermsPerYear.toFixed(1)} terms avg` : 'courses'}
+			</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">{stats.totalStudents}</div>
+			<div class="stat-meta">
+				<span class="muted">students enrolled · {selectedYear}</span>
+			</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">₹{stats.avgAnnual.toLocaleString('en-IN')}</div>
+			<div class="stat-meta muted">avg annual fee</div>
+		</div>
+		<div class="stat-card">
+			{#if stats.topCourse && stats.topCourse.count > 0}
+				<div class="stat-value-text">{stats.topCourse.name}</div>
+				<div class="stat-meta">
+					<Badge kind="ok">{stats.topCourse.count} students</Badge>
+					<span class="muted" style="margin-left: 8px;">top enrolment</span>
 				</div>
-
-				{#if viewMode === "by-course"}
-					<div class="form-control">
-						<label class="label" for="course-select">
-							<span class="label-text">Select Course</span>
-						</label>
-						<select
-							id="course-select"
-							class="select select-bordered select-sm w-full max-w-xs"
-							bind:value={selectedCourse}
-						>
-							<option value={null}>All courses</option>
-							{#each uniqueCourses as course}
-								<option value={course.id}>
-									{course.name}
-								</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-
-				<button class="btn btn-outline btn-sm" on:click={resetFilters}>
-					Reset Filters
-				</button>
-			</div>
+			{:else}
+				<div class="stat-value-text muted" style="font-size: 18px;">—</div>
+				<div class="stat-meta muted">top enrolment</div>
+			{/if}
 		</div>
 	</div>
 
-	<!-- Loading State -->
 	{#if loading}
-		<div class="flex justify-center items-center py-12">
-			<span class="loading loading-spinner loading-lg"></span>
-		</div>
-	{/if}
-
-	<!-- Error State -->
-	{#if error}
-		<div class="alert alert-error">
-			<span>{error}</span>
-		</div>
-	{/if}
-
-	<!-- Content -->
-	{#if !loading && !error}
-		{#if filteredFeeStructures.length === 0}
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body text-center py-12">
-					<h3 class="text-lg font-semibold text-base-content/70">
-						No fee structures found
-					</h3>
-					<p class="text-base-content/60">
-						Try adjusting your filters or check back later.
-					</p>
+		<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
+	{:else if error}
+		<div class="callout danger"><div class="callout-body">{error}</div></div>
+	{:else if courseGroups.length === 0}
+		<div class="card-s">
+			<div class="card-body-s">
+				<div class="empty-s">
+					<div class="glyph">∅</div>
+					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No courses found</div>
+					<div style="margin-top: 4px;">Try a different year.</div>
 				</div>
 			</div>
-		{:else}
-			<!-- Course Fee Structure Cards -->
-			<div class="grid gap-6">
-				{#each Array.from(groupedFeeStructures.entries()) as [courseId, courseFeeStructures]}
-					{@const courseInfo = courseFeeStructures[0]?.course}
-					{@const yearlyFee =
-						FeeStructureService.calculateYearlyFee(
-							courseFeeStructures,
-						)}
-					{@const studentKey = `${courseId}_${selectedYear}_${studentSearchYear || "all"}_${studentSearchTerm || "all"}`}
-					{@const isStudentListExpanded =
-						expandedCourses.has(studentKey)}
-					{@const sessions = studentSessions.get(studentKey) || []}
-					{@const isLoadingStudents = loadingStudents.has(studentKey)}
+		</div>
+	{:else}
+		<div class="course-split">
+			<!-- Left: course list -->
+			<aside class="course-list-card">
+				<div class="course-list-head">
+					<span class="course-list-title">All courses</span>
+					<span class="course-list-count">{courseGroups.length}</span>
+				</div>
+				<div class="course-list-body">
+					{#each courseGroups as g}
+						{@const isSel = selectedGroup?.course.id === g.course.id}
+						{@const studentCount = courseStudentCounts.get(g.course.id) ?? 0}
+						<button
+							type="button"
+							class="course-row"
+							class:is-sel={isSel}
+							on:click={() => selectCourse(g.course.id)}
+						>
+							<span class="course-avatar">{initials(g.course.name)}</span>
+							<span class="course-row-body">
+								<span class="course-row-name">{g.course.name}</span>
+								<span class="course-row-meta">
+									<Users size={11} strokeWidth={1.6} />
+									{studentCount} · ₹{(g.structures[0]?.amount ?? 0).toLocaleString('en-IN')}/term
+								</span>
+							</span>
+						</button>
+					{/each}
+				</div>
+				<button class="course-add" type="button" disabled>
+					<Plus size={14} strokeWidth={1.6} /> Add course
+				</button>
+			</aside>
 
-					{@const isExpanded = expandedFeeStructures.has(courseId)}
-					{@const termsPerYear = getTermsPerYear(courseId)}
-					{@const isUniformFee = courseFeeStructures.every(
-						(fs) => fs.amount === courseFeeStructures[0].amount,
-					)}
-					{@const termFee = courseFeeStructures[0]?.amount || 0}
-
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div
-						class="card bg-base-100 shadow-lg transition-all duration-200 hover:shadow-xl cursor-pointer"
-						on:click={() => toggleFeeStructure(courseId)}
-					>
-						<div class="card-body p-6">
-							<!-- Course Header / Summary -->
-							<div
-								class="flex flex-col sm:flex-row justify-between items-center gap-4"
-							>
-								<div class="flex-1 w-full sm:w-auto">
-									<div
-										class="flex flex-wrap items-center gap-3 sm:gap-6"
-									>
-										<h2
-											class="card-title text-xl text-primary"
-										>
-											{courseInfo?.name || courseId}
-										</h2>
-										{#if !isExpanded}
-											<div
-												class="flex items-center gap-4 flex-1"
-											>
-												<div
-													class="badge badge-outline"
-												>
-													{termsPerYear} Terms
-												</div>
-
-												<div
-													class="text-base-content/80 text-base ml-auto sm:ml-0"
-												>
-													{#if isUniformFee}
-														<span
-															class="font-bold text-secondary text-lg"
-															>₹{termFee.toLocaleString()}</span
-														>
-														<span
-															class="text-sm opacity-70"
-															>/ Term</span
-														>
-													{:else}
-														<span
-															class="font-bold text-secondary text-lg"
-															>₹{yearlyFee.toLocaleString()}</span
-														>
-														<span
-															class="text-sm opacity-70"
-															>/ Year</span
-														>
-													{/if}
-												</div>
-											</div>
-										{:else}
-											<div
-												class="flex gap-4 text-sm text-base-content/70"
-											>
-												<span
-													>Terms per year: {termsPerYear ||
-														"N/A"}</span
-												>
-												{#if courseFeeStructures.length > 0}
-													<span
-														>Year: {courseFeeStructures[0]
-															.year}</span
-													>
-												{/if}
-											</div>
-										{/if}
-									</div>
-								</div>
-
-								<div class="flex items-center gap-4">
-									{#if isExpanded}
-										<div
-											class="stats shadow-sm bg-base-200/50"
-										>
-											<div class="stat py-2 px-4">
-												<div class="stat-title text-xs">
-													Annual Fee
-												</div>
-												<div
-													class="stat-value text-lg text-secondary"
-												>
-													₹{yearlyFee.toLocaleString()}
-												</div>
-											</div>
-										</div>
-									{/if}
-
-									<button
-										class="btn btn-ghost btn-circle btn-sm text-primary"
-									>
-										{#if isExpanded}
-											<ChevronUp size={24} />
-										{:else}
-											<ChevronDown size={24} />
-										{/if}
+			<!-- Right: course detail -->
+			<section class="course-detail">
+				{#if selectedGroup}
+					<header class="course-detail-head">
+						<div style="display: flex; gap: 14px; align-items: flex-start; flex: 1; min-width: 0;">
+							<span class="course-avatar course-avatar-lg">{initials(selectedGroup.course.name)}</span>
+							<div style="min-width: 0; flex: 1;">
+								<h2 class="course-detail-name">{selectedGroup.course.name}</h2>
+								<p class="course-detail-sub">
+									{selectedGroup.termsPerYear} terms · {activeStudentCount} students enrolled · year {selectedYear}
+								</p>
+								<div style="display: flex; gap: 8px; margin-top: 12px;">
+									<button class="btn-s btn-secondary-s btn-sm-s" disabled>
+										<Pencil size={12} strokeWidth={1.6} /> Edit course
+									</button>
+									<button class="btn-s btn-secondary-s btn-sm-s" disabled>
+										<Users size={12} strokeWidth={1.6} /> Manage roster
+									</button>
+									<button class="btn-s btn-ghost-s btn-icon-s btn-sm-s" disabled aria-label="More">
+										<MoreHorizontal size={14} strokeWidth={1.6} />
 									</button>
 								</div>
 							</div>
+						</div>
+						<div class="course-detail-kpis">
+							<div>
+								<div class="kpi-label">Term fee</div>
+								<div class="kpi-value">₹{termFee.toLocaleString('en-IN')}</div>
+							</div>
+							<div>
+								<div class="kpi-label">Annual</div>
+								<div class="kpi-value accent">₹{annualFee.toLocaleString('en-IN')}</div>
+							</div>
+							<div>
+								<div class="kpi-label">Students</div>
+								<div class="kpi-value">{activeStudentCount}</div>
+							</div>
+						</div>
+					</header>
 
-							<!-- Expanded Content -->
-							{#if isExpanded}
-								<div
-									class="mt-6 animate-in fade-in slide-in-from-top-2 duration-200"
-								>
-									<!-- Fee Structure Table -->
-									<div
-										class="overflow-x-auto rounded-lg border border-base-200"
-									>
-										<table class="table table-zebra w-full">
-											<thead class="bg-base-200/50">
+					<div class="course-tabs">
+						<button class:is-active={activeTab === 'schedule'} on:click={() => (activeTab = 'schedule')}>
+							Terms &amp; schedule
+						</button>
+						<button class:is-active={activeTab === 'students'} on:click={() => (activeTab = 'students')}>
+							Students <span class="tab-badge">{activeStudentCount}</span>
+						</button>
+						<button class:is-active={activeTab === 'policy'} on:click={() => (activeTab = 'policy')}>Fee policy</button>
+						<button class:is-active={activeTab === 'analytics'} on:click={() => (activeTab = 'analytics')}>Analytics</button>
+					</div>
+
+					{#if activeTab === 'schedule'}
+						<div class="course-card">
+							<div class="course-card-head">
+								<span class="course-card-title">Term schedule</span>
+							</div>
+							<div class="tbl-wrap">
+								<table class="tbl">
+									<thead>
+										<tr>
+											<th>Term</th>
+											<th>Period</th>
+											<th style="text-align: right;">Fee</th>
+											<th>Status</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each selectedGroup.structures as fs}
+											{@const status = getTermStatus(fs.term, selectedGroup.termsPerYear)}
+											<tr>
+												<td><span class="strong">Term {fs.term}</span></td>
+												<td class="muted">{getTermMonthRange(fs.term, selectedGroup.termsPerYear)}</td>
+												<td class="num strong">₹{fs.amount.toLocaleString('en-IN')}</td>
+												<td>
+													{#if !fs.isActive}
+														<Badge kind="neutral">Inactive</Badge>
+													{:else if status === 'active'}
+														<Badge kind="ok">Active</Badge>
+													{:else if status === 'closed'}
+														<Badge kind="neutral">Closed</Badge>
+													{:else}
+														<Badge kind="warn">Upcoming</Badge>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					{:else if activeTab === 'students'}
+						<div class="course-card">
+							{#if loadingSessions}
+								<div style="display: flex; justify-content: center; padding: 30px 0;"><span class="spinner spinner-lg"></span></div>
+							{:else if detailSessions.length === 0}
+								<div class="callout info"><div class="callout-body">No students enrolled in {selectedYear}.</div></div>
+							{:else}
+								<div class="tbl-wrap">
+									<table class="tbl">
+										<thead>
+											<tr>
+												<th>Admission #</th>
+												<th>Name</th>
+												<th>Joined</th>
+												<th>Left</th>
+												<th>Status</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each detailSessions as s}
 												<tr>
-													<th>Term</th>
-													<th>Duration</th>
-													<th>Fee Amount</th>
-													<th>Status</th>
+													<td>
+														<a href="/students/{s.student.admissionNo}" style="color: var(--accent); font-family: var(--font-mono); font-size: 12px;">
+															{s.student.admissionNo}
+														</a>
+													</td>
+													<td><span class="strong">{s.student.studentName}</span></td>
+													<td class="muted">{formatDate(s.dateOfJoining)}</td>
+													<td class="muted">{isSessionActive(s) ? '—' : formatDate(s.dateOfDisjoining)}</td>
+													<td>
+														{#if isSessionActive(s)}
+															<Badge kind="ok">Active</Badge>
+														{:else}
+															<Badge kind="neutral">Inactive</Badge>
+														{/if}
+													</td>
 												</tr>
-											</thead>
-											<tbody>
-												{#each courseFeeStructures as feeStructure}
-													<tr>
-														<td>
-															<div
-																class="font-medium"
-															>
-																Term {feeStructure.term}
-															</div>
-														</td>
-														<td>
-															<div
-																class="text-sm text-base-content/70"
-															>
-																{termsPerYear >
-																0
-																	? getTermMonthRange(
-																			feeStructure.term,
-																			termsPerYear,
-																		)
-																	: "N/A"}
-															</div>
-														</td>
-														<td>
-															<div
-																class="font-semibold"
-															>
-																₹{feeStructure.amount.toLocaleString()}
-															</div>
-														</td>
-														<td>
-															<div
-																class="badge badge-sm"
-																class:badge-success={feeStructure.isActive}
-																class:badge-neutral={!feeStructure.isActive}
-															>
-																{feeStructure.isActive
-																	? "Active"
-																	: "Inactive"}
-															</div>
-														</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
+											{/each}
+										</tbody>
+									</table>
+									<div style="padding: 10px 16px; font-size: 12px; color: var(--fg-muted); border-top: 1px solid var(--border);">
+										Total: {detailSessions.length} student{detailSessions.length !== 1 ? 's' : ''} · {activeStudentCount} active
 									</div>
-
-									<!-- View Students Button -->
-									<div class="card-actions justify-end mt-4">
-										<button
-											class="btn btn-sm btn-primary"
-											on:click={(e) =>
-												toggleStudentList(
-													courseId,
-													courseInfo?.name ||
-														courseId,
-													e,
-												)}
-										>
-											<Users size={16} />
-											{isStudentListExpanded
-												? "Hide Students"
-												: "View Students"}
-										</button>
-									</div>
-
-									<!-- Student List Section -->
-									{#if isStudentListExpanded}
-										<div class="divider"></div>
-
-										<!-- Student Filters -->
-										<div
-											class="bg-base-200 p-4 rounded-lg mb-4 cursor-default"
-											on:click|stopPropagation
-										>
-											<div
-												class="flex flex-wrap gap-4 items-end"
-											>
-												<div class="form-control">
-													<label
-														class="label"
-														for="student-year-{courseId}"
-													>
-														<span class="label-text"
-															>Filter by Year</span
-														>
-													</label>
-													<select
-														id="student-year-{courseId}"
-														class="select select-bordered select-sm w-full max-w-xs"
-														bind:value={
-															studentSearchYear
-														}
-														on:change={applyStudentFilters}
-													>
-														<option value={null}
-															>All Years</option
-														>
-														{#each availableYears as year}
-															<option value={year}
-																>{year}</option
-															>
-														{/each}
-													</select>
-												</div>
-
-												<div class="form-control">
-													<label
-														class="label"
-														for="student-term-{courseId}"
-													>
-														<span class="label-text"
-															>Filter by Term</span
-														>
-													</label>
-													<select
-														id="student-term-{courseId}"
-														class="select select-bordered select-sm w-full max-w-xs"
-														bind:value={
-															studentSearchTerm
-														}
-														on:change={applyStudentFilters}
-														disabled={studentSearchYear ===
-															null}
-													>
-														<option value={null}
-															>All Terms</option
-														>
-														{#each Array.from({ length: getTermsPerYear(courseId) || 4 }, (_, i) => i + 1) as term}
-															<option value={term}
-																>Term {term}</option
-															>
-														{/each}
-													</select>
-												</div>
-
-												<button
-													class="btn btn-outline btn-sm"
-													on:click={resetStudentFilters}
-												>
-													Reset
-												</button>
-
-												{#if sessions.length > 0}
-													<button
-														class="btn btn-sm btn-success ml-auto"
-														on:click={() =>
-															downloadStudentListCSV(
-																courseInfo?.name ||
-																	courseId,
-																sessions,
-															)}
-													>
-														<Download size={16} />
-														Export CSV
-													</button>
-												{/if}
-											</div>
-										</div>
-
-										<!-- Student Table -->
-										<div
-											class="cursor-default"
-											on:click|stopPropagation
-										>
-											{#if isLoadingStudents}
-												<div
-													class="flex justify-center items-center py-8"
-												>
-													<span
-														class="loading loading-spinner loading-md"
-													></span>
-												</div>
-											{:else if sessions.length === 0}
-												<div class="alert alert-info">
-													<span
-														>No students found for
-														the selected filters.</span
-													>
-												</div>
-											{:else}
-												<div class="overflow-x-auto">
-													<table
-														class="table table-zebra w-full"
-													>
-														<thead>
-															<tr>
-																<th
-																	>Admission
-																	No</th
-																>
-																<th
-																	>Student
-																	Name</th
-																>
-																<th
-																	>Date of
-																	Joining</th
-																>
-																<th
-																	>Date of
-																	Disjoining</th
-																>
-																<th>Status</th>
-															</tr>
-														</thead>
-														<tbody>
-															{#each sessions as session}
-																<tr>
-																	<td>
-																		<a
-																			href="/students/{session
-																				.student
-																				.admissionNo}"
-																			class="link link-primary font-medium"
-																			target="_blank"
-																			rel="noopener noreferrer"
-																		>
-																			{session
-																				.student
-																				.admissionNo}
-																		</a>
-																	</td>
-																	<td
-																		>{session
-																			.student
-																			.studentName}</td
-																	>
-																	<td
-																		>{formatDate(
-																			session.dateOfJoining,
-																		)}</td
-																	>
-																	<td>
-																		{isSessionActive(
-																			session,
-																		)
-																			? "-"
-																			: formatDate(
-																					session.dateOfDisjoining,
-																				)}
-																	</td>
-																	<td>
-																		<div
-																			class="badge badge-sm"
-																			class:badge-success={isSessionActive(
-																				session,
-																			)}
-																			class:badge-neutral={!isSessionActive(
-																				session,
-																			)}
-																		>
-																			{isSessionActive(
-																				session,
-																			)
-																				? "Active"
-																				: "Inactive"}
-																		</div>
-																	</td>
-																</tr>
-															{/each}
-														</tbody>
-													</table>
-													<div
-														class="text-sm text-base-content/70 mt-2"
-													>
-														Total: {sessions.length}
-														student{sessions.length !==
-														1
-															? "s"
-															: ""}
-													</div>
-												</div>
-											{/if}
-										</div>
-									{/if}
 								</div>
 							{/if}
 						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
+					{:else if activeTab === 'policy'}
+						<div class="course-card">
+							<div class="course-card-head"><span class="course-card-title">Fee policy</span></div>
+							<div style="padding: 18px;">
+								<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
+									<div>
+										<div class="kpi-label">Term fee</div>
+										<div class="kpi-value">₹{termFee.toLocaleString('en-IN')}</div>
+									</div>
+									<div>
+										<div class="kpi-label">Annual</div>
+										<div class="kpi-value accent">₹{annualFee.toLocaleString('en-IN')}</div>
+									</div>
+									<div>
+										<div class="kpi-label">Terms / year</div>
+										<div class="kpi-value">{selectedGroup.termsPerYear}</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					{:else if activeTab === 'analytics'}
+						<div class="course-card">
+							<div class="course-card-head"><span class="course-card-title">Analytics</span></div>
+							<div style="padding: 28px; text-align: center; color: var(--fg-muted);">
+								<TrendingUp size={20} strokeWidth={1.4} />
+								<div style="margin-top: 8px;">Analytics for this course are not available yet.</div>
+							</div>
+						</div>
+					{/if}
+				{:else}
+					<div class="callout info"><div class="callout-body">Select a course to view details.</div></div>
+				{/if}
+			</section>
+		</div>
 	{/if}
 </div>
+
+<style>
+	.course-stats {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 12px;
+		margin-bottom: 18px;
+	}
+	@media (max-width: 1100px) {
+		.course-stats { grid-template-columns: repeat(2, 1fr); }
+	}
+	.stat-card {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 16px 18px;
+		min-height: 88px;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+	}
+	.stat-value {
+		font-family: var(--font-serif);
+		font-size: 28px;
+		font-weight: 500;
+		letter-spacing: -0.02em;
+		color: var(--fg);
+		line-height: 1.1;
+	}
+	.stat-value-text {
+		font-family: var(--font-serif);
+		font-size: 22px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
+		color: var(--fg);
+		line-height: 1.2;
+	}
+	.stat-meta {
+		font-size: 12px;
+		color: var(--fg-soft);
+		margin-top: 8px;
+		display: flex;
+		align-items: center;
+	}
+	.stat-meta .muted { color: var(--fg-muted); }
+
+	.course-split {
+		display: grid;
+		grid-template-columns: 320px 1fr;
+		gap: 16px;
+		align-items: start;
+	}
+	@media (max-width: 980px) {
+		.course-split { grid-template-columns: 1fr; }
+	}
+
+	.course-list-card {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+	.course-list-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 14px;
+		border-bottom: 1px solid var(--border);
+	}
+	.course-list-title {
+		font-size: 11px;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--fg-muted);
+		font-weight: 600;
+	}
+	.course-list-count {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--fg-soft);
+		background: var(--surface-2);
+		border-radius: 999px;
+		padding: 2px 8px;
+		min-width: 24px;
+		text-align: center;
+	}
+	.course-list-body {
+		padding: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.course-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px;
+		background: transparent;
+		border: 0;
+		border-radius: 8px;
+		cursor: pointer;
+		text-align: left;
+		font: inherit;
+		color: inherit;
+		transition: background 120ms ease;
+	}
+	.course-row:hover { background: var(--hover); }
+	.course-row.is-sel { background: var(--accent-soft); }
+	.course-row.is-sel .course-row-name { color: var(--accent-deep); }
+	.course-row-body {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+		flex: 1;
+	}
+	.course-row-name {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--fg);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.course-row-meta {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: var(--fg-muted);
+	}
+	.course-avatar {
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+		background: var(--accent-soft);
+		color: var(--accent-deep);
+		display: grid;
+		place-items: center;
+		font-family: var(--font-serif);
+		font-style: italic;
+		font-weight: 600;
+		font-size: 13px;
+		flex-shrink: 0;
+	}
+	.course-avatar-lg {
+		width: 56px;
+		height: 56px;
+		border-radius: 12px;
+		font-size: 22px;
+	}
+	.course-add {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 12px;
+		margin: 6px;
+		background: transparent;
+		border: 1px dashed var(--border-strong);
+		border-radius: 8px;
+		color: var(--fg-soft);
+		font: inherit;
+		font-size: 13px;
+		cursor: pointer;
+		transition: background 120ms ease, color 120ms ease;
+	}
+	.course-add:hover:not(:disabled) {
+		background: var(--hover);
+		color: var(--fg);
+	}
+	.course-add:disabled { opacity: 0.55; cursor: not-allowed; }
+
+	.course-detail {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		min-width: 0;
+	}
+	.course-detail-head {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 18px 20px;
+		display: flex;
+		gap: 18px;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+	.course-detail-name {
+		font-family: var(--font-serif);
+		font-size: 24px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
+		margin: 0;
+	}
+	.course-detail-sub {
+		margin: 4px 0 0;
+		font-size: 13px;
+		color: var(--fg-muted);
+	}
+	.course-detail-kpis {
+		display: flex;
+		gap: 24px;
+		padding-left: 18px;
+		border-left: 1px solid var(--border);
+	}
+	.kpi-value {
+		font-family: var(--font-serif);
+		font-size: 20px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
+	}
+	.kpi-value.accent { color: var(--accent-deep); }
+
+	.course-tabs {
+		display: flex;
+		gap: 6px;
+		border-bottom: 1px solid var(--border);
+		padding: 0 4px;
+	}
+	.course-tabs button {
+		background: transparent;
+		border: 0;
+		padding: 10px 14px;
+		font: inherit;
+		font-size: 13px;
+		color: var(--fg-soft);
+		cursor: pointer;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		transition: color 120ms ease, border-color 120ms ease;
+	}
+	.course-tabs button:hover { color: var(--fg); }
+	.course-tabs button.is-active {
+		color: var(--accent-deep);
+		border-bottom-color: var(--accent);
+		font-weight: 500;
+	}
+	.tab-badge {
+		font-size: 11px;
+		background: var(--surface-2);
+		color: var(--fg-soft);
+		padding: 1px 6px;
+		border-radius: 999px;
+	}
+
+	.course-card {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+	.course-card-head {
+		padding: 14px 18px;
+		border-bottom: 1px solid var(--border);
+	}
+	.course-card-title {
+		font-family: var(--font-serif);
+		font-size: 16px;
+		font-weight: 500;
+	}
+</style>

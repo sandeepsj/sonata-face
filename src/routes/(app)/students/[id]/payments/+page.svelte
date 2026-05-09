@@ -2,451 +2,248 @@
 	import { onMount } from 'svelte';
 	import type { Payment, Student } from '$lib';
 	import { currentStudentStore, calculateAmountCleared, formatPaymentType } from '$lib';
-	import { 
-		Loader2, 
-		AlertCircle, 
-		Banknote, 
-		Calendar, 
-		IndianRupee, 
-		ChevronDown, 
+	import {
+		AlertCircle,
+		Calendar,
+		ChevronDown,
 		ChevronRight,
 		Tag,
 		FileText,
-		TrendingUp,
 		BookOpen
 	} from 'lucide-svelte';
+	import Badge from '$lib/components/Badge.svelte';
+	import Money from '$lib/components/Money.svelte';
 
-	// Receive student from layout slot prop (optional, might be null initially)
 	export let student: Student | undefined = undefined;
 
-	// Subscribe to store for all data
 	$: currentStudentState = $currentStudentStore;
-	$: currentStudent = student || currentStudentState.student; // Use prop first, fallback to store
+	$: currentStudent = student || currentStudentState.student;
 	$: payments = currentStudentState.payments.data;
 	$: loading = currentStudentState.payments.loading;
 	$: error = currentStudentState.payments.error;
 	$: dues = currentStudentState.dues.data;
 
-	// State
 	let expandedPaymentIds = new Set<number>();
-
-	// Filter states
 	let showInactive = false;
 	let selectedPaymentType: string = 'ALL';
 
-	// Reactive filtered payments
-	$: filteredPayments = payments.filter(payment => {
-		// Filter by active status
-		if (!showInactive && !payment.isActive) return false;
-		
-		// Filter by payment type
-		if (selectedPaymentType !== 'ALL' && payment.paymentType !== selectedPaymentType) {
-			return false;
-		}
-		
+	$: filteredPayments = payments.filter((p) => {
+		if (!showInactive && !p.isActive) return false;
+		if (selectedPaymentType !== 'ALL' && p.paymentType !== selectedPaymentType) return false;
 		return true;
 	});
 
-	// Statistics
 	$: totalPayments = filteredPayments.length;
-	$: totalAmountPaid = filteredPayments.reduce((sum, p) => sum + p.amountPaid, 0);
-	$: totalDiscounts = filteredPayments.reduce((sum, p) => sum + (p.discountAmount || 0), 0);
-	$: totalAmountCleared = filteredPayments.reduce((sum, p) => sum + calculateAmountCleared(p), 0);
+	$: totalAmountPaid = filteredPayments.reduce((s, p) => s + p.amountPaid, 0);
+	$: totalDiscounts = filteredPayments.reduce((s, p) => s + (p.discountAmount || 0), 0);
+	$: totalAmountCleared = filteredPayments.reduce((s, p) => s + calculateAmountCleared(p), 0);
 
 	onMount(async () => {
-		// Get student from prop or store
-		const studentData = currentStudent;
-		
-		if (!studentData || !studentData.admissionNo) {
-			console.error('Student data not available - prop:', student, 'store:', currentStudentState.student);
-			return;
-		}
-
-		console.log('Fetching payment history for student:', studentData.admissionNo, studentData.studentName);
-
-		// Always force refresh dues on page entry
-		console.log('Fetching dues for enrichment...');
-		await currentStudentStore.fetchDues(studentData.admissionNo, true);
-		
-		// Always force refresh payments on page entry
-		console.log('Fetching payments...');
-		await currentStudentStore.fetchPayments(studentData.admissionNo, true);
-		console.log('Payments fetched:', $currentStudentStore.payments.data.length);
+		const sd = currentStudent;
+		if (!sd?.admissionNo) return;
+		await currentStudentStore.fetchDues(sd.admissionNo, true);
+		await currentStudentStore.fetchPayments(sd.admissionNo, true);
 	});
 
 	async function fetchPaymentHistory() {
-		const student = $currentStudentStore.student;
-		if (student && student.admissionNo) {
-			await currentStudentStore.fetchPayments(student.admissionNo, true);
+		const s = $currentStudentStore.student;
+		if (s?.admissionNo) await currentStudentStore.fetchPayments(s.admissionNo, true);
+	}
+
+	function toggle(id: number) {
+		if (expandedPaymentIds.has(id)) expandedPaymentIds.delete(id);
+		else expandedPaymentIds.add(id);
+		expandedPaymentIds = expandedPaymentIds;
+	}
+
+	function getPaymentDetails(p: Payment) {
+		if (p.feeStructure) {
+			const m = dues.find((d) => d.feeStructureId === p.feeStructure?.id);
+			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || p.courseName };
 		}
+		return { termYear: null, termNumber: null, courseName: p.courseName };
 	}
 
-	function togglePaymentExpansion(paymentId: number) {
-		if (expandedPaymentIds.has(paymentId)) {
-			expandedPaymentIds.delete(paymentId);
-		} else {
-			expandedPaymentIds.add(paymentId);
-		}
-		expandedPaymentIds = expandedPaymentIds; // Trigger reactivity
+	function formatDate(d: string): string {
+		try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
+		catch { return d; }
 	}
-
-	function getPaymentDetails(payment: Payment) {
-		// Try to find matching due for term/year/course info
-		if (payment.feeStructure) {
-			const matchingDue = dues.find(due => 
-				due.feeStructureId === payment.feeStructure?.id
-			);
-			
-			if (matchingDue) {
-				return {
-					termYear: matchingDue.termYear,
-					termNumber: matchingDue.termNumber,
-					courseName: matchingDue.courseName || payment.courseName
-				};
-			}
-		}
-
-		// Fallback to payment's own data
-		return {
-			termYear: null,
-			termNumber: null,
-			courseName: payment.courseName
-		};
-	}
-
-	function formatDate(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric' 
-		});
-	}
-
-	function formatDateTime(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
-	}
-
-	function formatCurrency(amount: number): string {
-		return new Intl.NumberFormat('en-IN', {
-			style: 'currency',
-			currency: 'INR',
-			minimumFractionDigits: 2
-		}).format(amount);
-	}
-
-	function getPaymentTypeStyle(type: string): string {
-		switch (type) {
-			case 'REGULAR':
-				return 'badge-primary';
-			case 'ADDITIONAL':
-				return 'badge-secondary';
-			case 'OTHER':
-				return 'badge-accent';
-			default:
-				return 'badge-ghost';
-		}
+	function formatDateTime(d: string): string {
+		try { return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+		catch { return d; }
 	}
 </script>
 
-<div class="container mx-auto p-6 space-y-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-3xl font-bold flex items-center gap-3">
-				<Banknote class="w-8 h-8 text-primary" />
-				Payment History
-			</h1>
-			{#if currentStudent}
-				<p class="text-base-content/70 mt-2">
-					Complete payment records for {currentStudent.studentName}
-				</p>
-			{/if}
+<div class="section-row">
+	<div>
+		<h2 class="section-title-s">Payment <em>history</em></h2>
+		{#if currentStudent}<div style="color: var(--fg-muted); font-size: 13px;">All payments for {currentStudent.studentName}.</div>{/if}
+	</div>
+</div>
+
+<div class="kpi-grid" style="margin-bottom: 18px;">
+	<div class="kpi">
+		<div class="kpi-label">Total payments</div>
+		<div class="kpi-value">{totalPayments}</div>
+	</div>
+	<div class="kpi">
+		<div class="kpi-label">Amount paid</div>
+		<div class="kpi-value" style="color: var(--ok);"><Money value={totalAmountPaid} mono={false} /></div>
+	</div>
+	<div class="kpi">
+		<div class="kpi-label">Total discounts</div>
+		<div class="kpi-value" style="color: var(--warn);"><Money value={totalDiscounts} mono={false} /></div>
+	</div>
+	<div class="kpi">
+		<div class="kpi-label">Amount cleared</div>
+		<div class="kpi-value" style="color: var(--info);"><Money value={totalAmountCleared} mono={false} /></div>
+	</div>
+</div>
+
+<div class="card-s" style="margin-bottom: 18px;">
+	<div class="card-body-s" style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+		<label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+			<input type="checkbox" bind:checked={showInactive} />
+			Show inactive payments
+		</label>
+		<div class="field" style="min-width: 200px;">
+			<label for="payment-type-filter">Payment type</label>
+			<select id="payment-type-filter" class="select-s" bind:value={selectedPaymentType}>
+				<option value="ALL">All types</option>
+				<option value="REGULAR">Term payments</option>
+				<option value="ADDITIONAL">Additional payments</option>
+				<option value="OTHER">Other payments</option>
+			</select>
 		</div>
 	</div>
+</div>
 
-	<!-- Statistics Cards -->
-	<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-		<div class="card bg-primary text-primary-content shadow-md">
-			<div class="card-body">
-				<div class="flex items-center justify-between">
-					<div>
-						<p class="text-primary-content/70 text-sm">Total Payments</p>
-						<p class="text-3xl font-bold">{totalPayments}</p>
-					</div>
-					<Banknote class="w-10 h-10 opacity-70" />
-				</div>
-			</div>
+{#if loading}
+	<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);"><span class="spinner spinner-lg"></span></div>
+{:else if error}
+	<div class="callout danger">
+		<AlertCircle size={18} strokeWidth={1.6} />
+		<div style="flex: 1;">
+			<div class="callout-title">Couldn't load payments</div>
+			<div class="callout-body">{error}</div>
 		</div>
-
-		<div class="card bg-success text-success-content shadow-md">
-			<div class="card-body">
-				<div class="flex items-center justify-between">
-					<div>
-						<p class="text-success-content/70 text-sm">Amount Paid</p>
-						<p class="text-2xl font-bold">{formatCurrency(totalAmountPaid)}</p>
-					</div>
-					<IndianRupee class="w-10 h-10 opacity-70" />
-				</div>
-			</div>
-		</div>
-
-		<div class="card bg-warning text-warning-content shadow-md">
-			<div class="card-body">
-				<div class="flex items-center justify-between">
-					<div>
-						<p class="text-warning-content/70 text-sm">Total Discounts</p>
-						<p class="text-2xl font-bold">{formatCurrency(totalDiscounts)}</p>
-					</div>
-					<Tag class="w-10 h-10 opacity-70" />
-				</div>
-			</div>
-		</div>
-
-		<div class="card bg-info text-info-content shadow-md">
-			<div class="card-body">
-				<div class="flex items-center justify-between">
-					<div>
-						<p class="text-info-content/70 text-sm">Amount Cleared</p>
-						<p class="text-2xl font-bold">{formatCurrency(totalAmountCleared)}</p>
-					</div>
-					<TrendingUp class="w-10 h-10 opacity-70" />
-				</div>
-			</div>
-		</div>
+		<button class="btn-s btn-secondary-s btn-sm-s" on:click={fetchPaymentHistory}>Retry</button>
 	</div>
-
-	<!-- Filters -->
-	<div class="card bg-base-100 shadow-sm">
-		<div class="card-body">
-			<div class="flex flex-wrap gap-4 items-center">
-				<div class="form-control">
-					<label class="label cursor-pointer gap-2">
-						<input 
-							type="checkbox" 
-							class="checkbox checkbox-primary" 
-							bind:checked={showInactive}
-						/>
-						<span class="label-text">Show Inactive Payments</span>
-					</label>
-				</div>
-
-				<div class="form-control">
-					<label class="label" for="payment-type-filter">
-						<span class="label-text font-semibold">Payment Type</span>
-					</label>
-					<select 
-						id="payment-type-filter"
-						class="select select-bordered select-sm" 
-						bind:value={selectedPaymentType}
-					>
-						<option value="ALL">All Types</option>
-						<option value="REGULAR">Term Payments</option>
-						<option value="ADDITIONAL">Additional Payments</option>
-						<option value="OTHER">Other Payments</option>
-					</select>
-				</div>
+{:else if filteredPayments.length === 0}
+	<div class="card-s">
+		<div class="card-body-s">
+			<div class="empty-s">
+				<div class="glyph">∅</div>
+				<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No payment records</div>
+				<div style="margin-top: 4px;">{showInactive ? 'No payments match the filters.' : 'Try including inactive payments.'}</div>
 			</div>
 		</div>
 	</div>
+{:else}
+	<div style="display: flex; flex-direction: column; gap: 12px;">
+		{#each filteredPayments as payment (payment.id)}
+			{@const isExpanded = expandedPaymentIds.has(payment.id)}
+			{@const amountCleared = calculateAmountCleared(payment)}
+			{@const totalDiscount = payment.discountAmount || 0}
+			{@const hasDiscounts = payment.discounts && payment.discounts.length > 0}
+			{@const pd = getPaymentDetails(payment)}
 
-	<!-- Loading State -->
-	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<Loader2 class="w-8 h-8 animate-spin text-primary" />
-			<span class="ml-3 text-lg">Loading payment history...</span>
-		</div>
-	{/if}
-
-	<!-- Error State -->
-	{#if error}
-		<div class="alert alert-error shadow-lg">
-			<AlertCircle class="w-6 h-6" />
-			<div>
-				<h3 class="font-bold">Error Loading Payment History</h3>
-				<div class="text-sm">{error}</div>
-			</div>
-			<button class="btn btn-sm btn-ghost" on:click={fetchPaymentHistory}>
-				Retry
-			</button>
-		</div>
-	{/if}
-
-	<!-- Payments List -->
-	{#if !loading && !error}
-		{#if filteredPayments.length === 0}
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body items-center text-center py-12">
-					<Banknote class="w-16 h-16 text-base-content/30 mb-4" />
-					<h3 class="text-xl font-semibold text-base-content/70">No Payment Records</h3>
-					<p class="text-base-content/50">
-						{showInactive 
-							? 'No payments found matching the selected filters.' 
-							: 'No active payments found. Try including inactive payments.'}
-					</p>
-				</div>
-			</div>
-		{:else}
-			<div class="space-y-4">
-				{#each filteredPayments as payment (payment.id)}
-					{@const isExpanded = expandedPaymentIds.has(payment.id)}
-					{@const amountCleared = calculateAmountCleared(payment)}
-					{@const totalDiscount = payment.discountAmount || 0}
-					{@const hasDiscounts = payment.discounts && payment.discounts.length > 0}
-					{@const paymentDetails = getPaymentDetails(payment)}
-
-					<div class="card bg-base-100 shadow-md border-l-4 {payment.isActive ? 'border-l-success' : 'border-l-base-300'}">
-						<div class="card-body">
-							<!-- Payment Header -->
-							<div class="flex flex-wrap items-start justify-between gap-4">
-								<div class="flex-1 min-w-0">
-									<div class="flex items-center gap-3 mb-2">
-										<h3 class="text-lg font-bold truncate">
-											{payment.label || `Payment #${payment.id}`}
-										</h3>
-										<div class="badge {getPaymentTypeStyle(payment.paymentType)}">
-											{formatPaymentType(payment.paymentType)}
-										</div>
-										{#if !payment.isActive}
-											<div class="badge badge-ghost">Inactive</div>
-										{/if}
-									</div>
-									
-									{#if paymentDetails.courseName}
-										<p class="text-sm text-base-content/70 mb-1 flex items-center gap-2">
-											<BookOpen class="w-4 h-4 text-base-content/70" />
-											<span class="font-semibold">Course:</span>
-											<span>{paymentDetails.courseName}</span>
-										</p>
-									{/if}
-									
-									{#if paymentDetails.termYear && paymentDetails.termNumber}
-										<p class="text-sm text-base-content/70">
-											<span class="font-semibold">Term:</span> Year {paymentDetails.termYear}, Term {paymentDetails.termNumber}
-										</p>
-									{:else if payment.feeStructure}
-										<p class="text-sm text-base-content/70">
-											<span class="font-semibold">Term:</span> {payment.feeStructure.termName}
-										</p>
-									{/if}
-								</div>
-
-								<div class="text-right">
-									<div class="flex items-center gap-2 text-sm text-base-content/70 mb-1">
-										<Calendar class="w-4 h-4" />
-										<span>{formatDate(payment.date)}</span>
-									</div>
-									<div class="text-xs text-base-content/50">
-										Created: {formatDateTime(payment.createdAt)}
-									</div>
-								</div>
+			<div class="card-s" style="border-left: 4px solid {payment.isActive ? 'var(--ok)' : 'var(--border-strong)'};">
+				<div class="card-body-s">
+					<div style="display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap;">
+						<div style="flex: 1; min-width: 240px;">
+							<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+								<h3 style="font-family: var(--font-serif); font-weight: 500; font-size: 17px; margin: 0;">
+									{payment.label || `Payment #${payment.id}`}
+								</h3>
+								{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
+								{:else if payment.paymentType === 'ADDITIONAL'}<Badge kind="accent">Additional</Badge>
+								{:else}<Badge kind="neutral">{formatPaymentType(payment.paymentType)}</Badge>{/if}
+								{#if !payment.isActive}<Badge kind="neutral">Inactive</Badge>{/if}
 							</div>
-
-							<!-- Payment Amounts -->
-							<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-								<div class="bg-success/10 rounded-lg p-3">
-									<p class="text-xs text-base-content/70 mb-1">Amount Paid</p>
-									<p class="text-xl font-bold text-success">
-										{formatCurrency(payment.amountPaid)}
-									</p>
-								</div>
-
-								{#if totalDiscount > 0}
-									<div class="bg-warning/10 rounded-lg p-3">
-										<p class="text-xs text-base-content/70 mb-1">Total Discount</p>
-										<p class="text-xl font-bold text-warning">
-											{formatCurrency(totalDiscount)}
-										</p>
-									</div>
-								{/if}
-
-								<div class="bg-info/10 rounded-lg p-3">
-									<p class="text-xs text-base-content/70 mb-1">Amount Cleared</p>
-									<p class="text-xl font-bold text-info">
-										{formatCurrency(amountCleared)}
-									</p>
-								</div>
-							</div>
-
-							<!-- Remarks -->
-							{#if payment.remarks}
-								<div class="mt-3 flex items-start gap-2">
-									<FileText class="w-4 h-4 mt-1 text-base-content/50" />
-									<div class="flex-1">
-										<p class="text-sm text-base-content/70">
-											<span class="font-semibold">Remarks:</span> {payment.remarks}
-										</p>
-									</div>
+							{#if pd.courseName}
+								<div style="font-size: 13px; color: var(--fg-soft); display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+									<BookOpen size={13} strokeWidth={1.6} style="color: var(--fg-muted);" />
+									<span style="color: var(--fg-muted);">Course:</span>
+									<span class="strong">{pd.courseName}</span>
 								</div>
 							{/if}
+							{#if pd.termYear && pd.termNumber}
+								<div style="font-size: 12.5px; color: var(--fg-muted);">Term: Year {pd.termYear}, Term {pd.termNumber}</div>
+							{:else if payment.feeStructure}
+								<div style="font-size: 12.5px; color: var(--fg-muted);">Term: {payment.feeStructure.termName}</div>
+							{/if}
+						</div>
 
-							<!-- Discount Details (Expandable) -->
-							{#if hasDiscounts}
-								<div class="mt-4">
-									<button 
-										class="btn btn-sm btn-ghost gap-2"
-										on:click={() => togglePaymentExpansion(payment.id)}
-									>
-										{#if isExpanded}
-											<ChevronDown class="w-4 h-4" />
-										{:else}
-											<ChevronRight class="w-4 h-4" />
-										{/if}
-										Discount Details ({payment.discounts.length})
-									</button>
+						<div style="text-align: right;">
+							<div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-muted);">
+								<Calendar size={13} strokeWidth={1.6} /> {formatDate(payment.date)}
+							</div>
+							<div style="font-size: 11px; color: var(--fg-muted); margin-top: 2px;">Created: {formatDateTime(payment.createdAt)}</div>
+						</div>
+					</div>
 
-									{#if isExpanded}
-										<div class="mt-3 bg-base-200 rounded-lg p-4">
-											<div class="overflow-x-auto">
-												<table class="table table-sm">
-													<thead>
-														<tr>
-															<th>Discount Label</th>
-															<th>Amount</th>
-															<th>Remarks</th>
-														</tr>
-													</thead>
-													<tbody>
-														{#each payment.discounts as discount}
-															<tr>
-																<td class="text-sm">
-																	{discount.label || 'Discount'}
-																</td>
-																<td class="font-bold text-warning">
-																	{formatCurrency(discount.discountAmount)}
-																</td>
-																<td class="text-sm text-base-content/70">
-																	{discount.remarks || '-'}
-																</td>
-															</tr>
-														{/each}
-													</tbody>
-													<tfoot>
-														<tr class="font-bold">
-															<td>Total Discount</td>
-															<td class="text-warning">
-																{formatCurrency(totalDiscount)}
-															</td>
-															<td></td>
-														</tr>
-													</tfoot>
-												</table>
-											</div>
-										</div>
-									{/if}
+					<div class="grid-3" style="margin-top: 14px;">
+						<div style="background: var(--ok-soft); padding: 10px 12px; border-radius: 8px;">
+							<div class="kpi-label" style="margin-bottom: 4px;">Amount paid</div>
+							<div style="font-family: var(--font-serif); font-size: 20px; color: var(--ok);"><Money value={payment.amountPaid} mono={false} /></div>
+						</div>
+						{#if totalDiscount > 0}
+							<div style="background: var(--warn-soft); padding: 10px 12px; border-radius: 8px;">
+								<div class="kpi-label" style="margin-bottom: 4px;">Discount</div>
+								<div style="font-family: var(--font-serif); font-size: 20px; color: var(--warn);"><Money value={totalDiscount} mono={false} /></div>
+							</div>
+						{/if}
+						<div style="background: var(--info-soft); padding: 10px 12px; border-radius: 8px;">
+							<div class="kpi-label" style="margin-bottom: 4px;">Cleared</div>
+							<div style="font-family: var(--font-serif); font-size: 20px; color: var(--info);"><Money value={amountCleared} mono={false} /></div>
+						</div>
+					</div>
+
+					{#if payment.remarks}
+						<div style="margin-top: 12px; display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--fg-soft);">
+							<FileText size={14} strokeWidth={1.6} style="color: var(--fg-muted); margin-top: 2px;" />
+							<div><span class="muted">Remarks:</span> {payment.remarks}</div>
+						</div>
+					{/if}
+
+					{#if hasDiscounts}
+						<div style="margin-top: 12px;">
+							<button class="btn-s btn-ghost-s btn-sm-s" on:click={() => toggle(payment.id)}>
+								{#if isExpanded}<ChevronDown size={14} strokeWidth={1.6} />{:else}<ChevronRight size={14} strokeWidth={1.6} />{/if}
+								<Tag size={14} strokeWidth={1.6} /> Discount details ({payment.discounts.length})
+							</button>
+							{#if isExpanded}
+								<div style="margin-top: 10px; background: var(--bg-elev); border-radius: 8px; padding: 10px;">
+									<table class="tbl" style="font-size: 12.5px;">
+										<thead>
+											<tr>
+												<th>Label</th>
+												<th>Amount</th>
+												<th>Remarks</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each payment.discounts as discount}
+												<tr>
+													<td>{discount.label || 'Discount'}</td>
+													<td class="num strong" style="color: var(--warn);"><Money value={discount.discountAmount} /></td>
+													<td class="muted">{discount.remarks || '—'}</td>
+												</tr>
+											{/each}
+											<tr style="border-top: 1px solid var(--border);">
+												<td class="strong">Total</td>
+												<td class="num strong" style="color: var(--warn);"><Money value={totalDiscount} /></td>
+												<td></td>
+											</tr>
+										</tbody>
+									</table>
 								</div>
 							{/if}
 						</div>
-					</div>
-				{/each}
+					{/if}
+				</div>
 			</div>
-		{/if}
-	{/if}
-</div>
+		{/each}
+	</div>
+{/if}

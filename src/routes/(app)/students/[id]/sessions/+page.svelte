@@ -1,22 +1,34 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { StudentSessionService, CourseService, currentStudentStore, type StudentSession, type Course, type CreateStudentSessionRequest } from '$lib';
-	import { Calendar, BookOpen, Clock, User, AlertCircle, CheckCircle, Plus, X, AlertTriangle } from 'lucide-svelte';
+	import {
+		StudentSessionService,
+		CourseService,
+		currentStudentStore,
+		type StudentSession,
+		type Course,
+		type CreateStudentSessionRequest
+	} from '$lib';
+	import {
+		Calendar,
+		BookOpen,
+		Clock,
+		AlertCircle,
+		CheckCircle,
+		Plus,
+		X,
+		AlertTriangle
+	} from 'lucide-svelte';
+	import Badge from '$lib/components/Badge.svelte';
 
-	// Get student ID from URL params
 	$: studentId = Number($page.params.id);
-
-	// Subscribe to store
 	$: storeState = $currentStudentStore;
 	$: sessions = storeState.sessions.data;
 	$: loading = storeState.sessions.loading;
 	$: error = storeState.sessions.error;
 
-	// Component state
 	let courses: Course[] = [];
 	let loadingCourses = false;
 
-	// Enrollment modal state
 	let showEnrollmentModal = false;
 	let enrollmentLoading = false;
 	let selectedCourseId = '';
@@ -24,41 +36,27 @@
 	let customDisjoinDate = '';
 	let sessionType: 'active' | 'historical' = 'active';
 
-	// Filter state
 	let sessionFilter: 'all' | 'active' | 'inactive' = 'all';
 
-	// Confirmation modal state
 	let showConfirmModal = false;
 	let sessionToEnd: StudentSession | null = null;
 	let endingSession = false;
 
-	// Computed values
 	$: groupedSessions = StudentSessionService.groupSessionsByStatus(sessions);
 	$: activeSessions = groupedSessions.active;
 	$: inactiveSessions = groupedSessions.inactive;
-	
-	// Apply filtering
 	$: filteredActiveSessions = sessionFilter === 'inactive' ? [] : activeSessions;
 	$: filteredInactiveSessions = sessionFilter === 'active' ? [] : inactiveSessions;
-	$: totalFilteredSessions = filteredActiveSessions.length + filteredInactiveSessions.length;
-	
-	// Get enrolled course names to exclude from dropdown
-	$: enrolledCourseNames = activeSessions.map(session => session.course.name);
-	$: availableCourses = courses.filter(course => !enrolledCourseNames.includes(course.name));
+	$: enrolledCourseNames = activeSessions.map((s) => s.course.name);
+	$: availableCourses = courses.filter((c) => !enrolledCourseNames.includes(c.name));
 
 	async function loadStudentSessions() {
 		try {
 			loadingCourses = true;
-
-			// Load sessions from store (will fetch if needed) and courses
 			await Promise.all([
 				currentStudentStore.fetchSessions(studentId),
 				loadCourses()
 			]);
-
-		} catch (err) {
-			console.error('Error loading student sessions:', err);
-			// Error is handled in the store
 		} finally {
 			loadingCourses = false;
 		}
@@ -72,40 +70,25 @@
 		}
 	}
 
-	async function handleDisjoinSession(sessionId: number) {
-		// Find the session to end
-		const session = sessions.find(s => s.id === sessionId);
-		if (!session) {
-			return;
-		}
-
-		// Show confirmation modal
+	function handleDisjoinSession(sessionId: number) {
+		const session = sessions.find((s) => s.id === sessionId);
+		if (!session) return;
 		sessionToEnd = session;
 		showConfirmModal = true;
 	}
-
 	function cancelEndSession() {
 		showConfirmModal = false;
 		sessionToEnd = null;
 		endingSession = false;
 	}
-
 	async function confirmEndSession() {
 		if (!sessionToEnd) return;
-
 		try {
 			endingSession = true;
-
 			await StudentSessionService.disjoinSession(sessionToEnd.id);
-			
-			// Close modal and reload data from store
 			showConfirmModal = false;
 			sessionToEnd = null;
-			await currentStudentStore.fetchSessions(studentId, true); // Force refresh
-
-		} catch (err) {
-			console.error('Error ending session:', err);
-			// Error is shown in UI from store's error state
+			await currentStudentStore.fetchSessions(studentId, true);
 		} finally {
 			endingSession = false;
 		}
@@ -118,7 +101,6 @@
 		customDisjoinDate = '';
 		sessionType = 'active';
 	}
-
 	function closeEnrollmentModal() {
 		showEnrollmentModal = false;
 		selectedCourseId = '';
@@ -127,561 +109,268 @@
 		sessionType = 'active';
 	}
 
-	// Reactive statement to load sessions when studentId changes
-	$: if (studentId) {
-		loadStudentSessions();
-	}
+	$: if (studentId) loadStudentSessions();
 
 	async function handleEnrollment() {
-		if (!selectedCourseId) {
-			return;
-		}
-
-		// Validation for historical sessions
+		if (!selectedCourseId) return;
 		if (sessionType === 'historical') {
-			if (!customJoinDate) {
-				return;
-			}
-			if (!customDisjoinDate) {
-				return;
-			}
-			
-			const joinDate = new Date(customJoinDate);
-			const disjoinDate = new Date(customDisjoinDate);
-			
-			if (disjoinDate <= joinDate) {
-				return;
-			}
+			if (!customJoinDate || !customDisjoinDate) return;
+			if (new Date(customDisjoinDate) <= new Date(customJoinDate)) return;
 		}
-
 		try {
 			enrollmentLoading = true;
-
-			const selectedCourse = courses.find(c => c.id === selectedCourseId);
-			if (!selectedCourse) {
-				return;
-			}
-
+			const selected = courses.find((c) => c.id === selectedCourseId);
+			if (!selected) return;
 			const enrollmentRequest: CreateStudentSessionRequest = {
-				studentId: studentId,
-				courseName: selectedCourse.name
+				studentId,
+				courseName: selected.name
 			};
-
-			// Add custom join date if specified
-			if (customJoinDate) {
-				enrollmentRequest.dateOfJoining = new Date(customJoinDate).toISOString();
-			}
-
-			// Add custom disjoin date for historical sessions
-			if (sessionType === 'historical' && customDisjoinDate) {
+			if (customJoinDate) enrollmentRequest.dateOfJoining = new Date(customJoinDate).toISOString();
+			if (sessionType === 'historical' && customDisjoinDate)
 				enrollmentRequest.dateOfDisjoining = new Date(customDisjoinDate).toISOString();
-			}
-
 			await StudentSessionService.createSession(enrollmentRequest);
-			
-			// Close modal and reload data from store
 			closeEnrollmentModal();
-			await currentStudentStore.fetchSessions(studentId, true); // Force refresh
-
-		} catch (err) {
-			console.error('Error enrolling student:', err);
-			// Error is shown in UI from store's error state
+			await currentStudentStore.fetchSessions(studentId, true);
 		} finally {
 			enrollmentLoading = false;
 		}
 	}
 </script>
 
-<svelte:head>
-	<title>Student Sessions - Revathi Arts and Music School</title>
-</svelte:head>
-
-<div class="container mx-auto p-6 space-y-6">
-	<!-- Page Header -->
-	<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-		<div>
-			<h1 class="text-3xl font-bold text-base-content flex items-center gap-2">
-				<BookOpen class="w-8 h-8 text-primary" />
-				Student Sessions
-			</h1>
-			<p class="text-base-content/70 mt-1">Complete course enrollment history - active and completed sessions</p>
-		</div>
-
-		<div class="flex gap-2">
-			<button 
-				class="btn btn-primary btn-sm"
-				on:click={openEnrollmentModal}
-				disabled={loading}
-			>
-				<Plus class="w-4 h-4" />
-				Add Session
-			</button>
-		</div>
+<div class="section-row">
+	<div>
+		<h2 class="section-title-s">Course <em>sessions</em></h2>
+		<div style="color: var(--fg-muted); font-size: 13px;">Active and completed enrolments.</div>
 	</div>
-
-	<!-- Filter Controls -->
-	{#if !loading && sessions.length > 0}
-		<div class="card bg-base-100 shadow-sm">
-			<div class="card-body p-4">
-				<div class="flex flex-wrap gap-4 items-center">
-					<div class="flex items-center gap-2">
-						<span class="text-sm font-medium">Filter Sessions:</span>
-						<div class="btn-group">
-							<button 
-								class="btn btn-sm"
-								class:btn-active={sessionFilter === 'all'}
-								on:click={() => sessionFilter = 'all'}
-							>
-								All ({sessions.length})
-							</button>
-							<button 
-								class="btn btn-sm"
-								class:btn-active={sessionFilter === 'active'}
-								on:click={() => sessionFilter = 'active'}
-							>
-								Active ({activeSessions.length})
-							</button>
-							<button 
-								class="btn btn-sm"
-								class:btn-active={sessionFilter === 'inactive'}
-								on:click={() => sessionFilter = 'inactive'}
-							>
-								Completed ({inactiveSessions.length})
-							</button>
-						</div>
-					</div>
-
-					{#if sessionFilter !== 'all'}
-						<div class="text-sm text-base-content/70">
-							Showing {totalFilteredSessions} of {sessions.length} sessions
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
-
-	<!-- Loading State -->
-	{#if loading}
-		<div class="flex justify-center items-center py-12">
-			<span class="loading loading-spinner loading-lg"></span>
-		</div>
-	{/if}
-
-	<!-- Error State -->
-	{#if error}
-		<div class="alert alert-error">
-			<AlertCircle class="w-5 h-5" />
-			<span>{error}</span>
-		</div>
-	{/if}
-
-	<!-- Sessions Content -->
-	{#if !loading && !error}
-		<!-- Summary Stats -->
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-			<div class="stat bg-base-100 shadow-sm rounded-lg">
-				<div class="stat-figure text-primary">
-					<CheckCircle class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Active Sessions</div>
-				<div class="stat-value text-primary">{activeSessions.length}</div>
-				<div class="stat-desc">Currently enrolled</div>
-			</div>
-
-			<div class="stat bg-base-100 shadow-sm rounded-lg">
-				<div class="stat-figure text-secondary">
-					<Clock class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Completed Sessions</div>
-				<div class="stat-value text-secondary">{inactiveSessions.length}</div>
-				<div class="stat-desc">Previously enrolled</div>
-			</div>
-
-			<div class="stat bg-base-100 shadow-sm rounded-lg">
-				<div class="stat-figure text-accent">
-					<BookOpen class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Total Sessions</div>
-				<div class="stat-value text-accent">{sessions.length}</div>
-				<div class="stat-desc">All time</div>
-			</div>
-		</div>
-
-		<!-- Active Sessions -->
-		{#if filteredActiveSessions.length > 0}
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body">
-					<h2 class="card-title text-xl flex items-center gap-2">
-						<CheckCircle class="w-6 h-6 text-success" />
-						Active Sessions ({filteredActiveSessions.length})
-					</h2>
-					
-					<div class="overflow-x-auto">
-						<table class="table table-zebra">
-							<thead>
-								<tr>
-									<th>Course</th>
-									<th>Joined Date</th>
-									<th>Duration</th>
-									<th>Status</th>
-									<th>Actions</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredActiveSessions as session}
-									<tr>
-										<td>
-											<div class="font-semibold">{session.course.name}</div>
-										</td>
-										<td>
-											<div class="flex items-center gap-2">
-												<Calendar class="w-4 h-4 text-base-content/50" />
-												{StudentSessionService.formatDate(session.dateOfJoining)}
-											</div>
-										</td>
-										<td>
-											<div class="flex items-center gap-2">
-												<Clock class="w-4 h-4 text-base-content/50" />
-												{StudentSessionService.calculateSessionDuration(session)}
-											</div>
-										</td>
-										<td>
-											<div class="badge badge-success">Active</div>
-										</td>
-										<td>
-											<button 
-												class="btn btn-error btn-xs"
-												on:click={() => handleDisjoinSession(session.id)}
-											>
-												End Session
-											</button>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Inactive Sessions -->
-		{#if filteredInactiveSessions.length > 0}
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body">
-					<h2 class="card-title text-xl flex items-center gap-2">
-						<Clock class="w-6 h-6 text-base-content/50" />
-						Completed Sessions ({filteredInactiveSessions.length})
-					</h2>
-					
-					<div class="overflow-x-auto">
-						<table class="table table-zebra">
-							<thead>
-								<tr>
-									<th>Course</th>
-									<th>Joined Date</th>
-									<th>Left Date</th>
-									<th>Duration</th>
-									<th>Status</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredInactiveSessions as session}
-									<tr>
-										<td>
-											<div class="font-semibold">{session.course.name}</div>
-										</td>
-										<td>
-											<div class="flex items-center gap-2">
-												<Calendar class="w-4 h-4 text-base-content/50" />
-												{StudentSessionService.formatDate(session.dateOfJoining)}
-											</div>
-										</td>
-										<td>
-											<div class="flex items-center gap-2">
-												<Calendar class="w-4 h-4 text-base-content/50" />
-												{session.dateOfDisjoining ? StudentSessionService.formatDate(session.dateOfDisjoining) : 'N/A'}
-											</div>
-										</td>
-										<td>
-											<div class="flex items-center gap-2">
-												<Clock class="w-4 h-4 text-base-content/50" />
-												{StudentSessionService.calculateSessionDuration(session)}
-											</div>
-										</td>
-										<td>
-											<div class="badge badge-neutral">Completed</div>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Empty State -->
-		{#if sessions.length === 0}
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body text-center py-12">
-					<BookOpen class="w-16 h-16 text-base-content/30 mx-auto mb-4" />
-					<h3 class="text-xl font-semibold text-base-content/70 mb-2">No Sessions Found</h3>
-					<p class="text-base-content/50 mb-4">This student hasn't been enrolled in any courses yet.</p>
-					<button 
-						class="btn btn-primary"
-						on:click={openEnrollmentModal}
-					>
-						<Plus class="w-4 h-4" />
-						Add First Session
-					</button>
-				</div>
-			</div>
-		{/if}
-	{/if}
+	<div>
+		<button class="btn-s btn-primary-s btn-sm-s" on:click={openEnrollmentModal} disabled={loading}>
+			<Plus size={14} strokeWidth={1.8} /> Add session
+		</button>
+	</div>
 </div>
 
-<!-- Enrollment Modal -->
+{#if !loading && sessions.length > 0}
+	<div class="card-s" style="margin-bottom: 18px;">
+		<div class="card-body-s" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+			<span class="kpi-label">Filter</span>
+			<div class="seg">
+				<button class:active={sessionFilter === 'all'} on:click={() => (sessionFilter = 'all')}>All ({sessions.length})</button>
+				<button class:active={sessionFilter === 'active'} on:click={() => (sessionFilter = 'active')}>Active ({activeSessions.length})</button>
+				<button class:active={sessionFilter === 'inactive'} on:click={() => (sessionFilter = 'inactive')}>Completed ({inactiveSessions.length})</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if loading}
+	<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);"><span class="spinner spinner-lg"></span></div>
+{:else if error}
+	<div class="callout danger">
+		<AlertCircle size={18} strokeWidth={1.6} />
+		<div class="callout-body">{error}</div>
+	</div>
+{:else}
+	<div class="kpi-grid" style="margin-bottom: 18px;">
+		<div class="kpi">
+			<div class="kpi-label">Active</div>
+			<div class="kpi-value" style="color: var(--ok);">{activeSessions.length}</div>
+			<div class="kpi-meta"><span>Currently enrolled</span></div>
+		</div>
+		<div class="kpi">
+			<div class="kpi-label">Completed</div>
+			<div class="kpi-value">{inactiveSessions.length}</div>
+			<div class="kpi-meta"><span>Previously enrolled</span></div>
+		</div>
+		<div class="kpi">
+			<div class="kpi-label">Total</div>
+			<div class="kpi-value" style="color: var(--accent);">{sessions.length}</div>
+			<div class="kpi-meta"><span>All time</span></div>
+		</div>
+		<div class="kpi"></div>
+	</div>
+
+	{#if filteredActiveSessions.length > 0}
+		<div class="card-s" style="margin-bottom: 18px;">
+			<div class="card-header">
+				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
+					<CheckCircle size={16} strokeWidth={1.6} style="color: var(--ok);" />
+					Active sessions ({filteredActiveSessions.length})
+				</h3>
+			</div>
+			<div class="card-body-s tight">
+				<table class="tbl">
+					<thead>
+						<tr><th>Course</th><th>Joined</th><th>Duration</th><th>Status</th><th style="text-align: right;">Actions</th></tr>
+					</thead>
+					<tbody>
+						{#each filteredActiveSessions as session}
+							<tr>
+								<td><div class="strong">{session.course.name}</div></td>
+								<td><div style="display: inline-flex; align-items: center; gap: 6px;"><Calendar size={12} strokeWidth={1.6} style="color: var(--fg-muted);" />{StudentSessionService.formatDate(session.dateOfJoining)}</div></td>
+								<td><div style="display: inline-flex; align-items: center; gap: 6px;"><Clock size={12} strokeWidth={1.6} style="color: var(--fg-muted);" />{StudentSessionService.calculateSessionDuration(session)}</div></td>
+								<td><Badge kind="ok" dot>Active</Badge></td>
+								<td style="text-align: right;">
+									<button class="btn-s btn-secondary-s btn-sm-s" style="color: var(--danger); border-color: var(--danger-soft);" on:click={() => handleDisjoinSession(session.id)}>End session</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	{/if}
+
+	{#if filteredInactiveSessions.length > 0}
+		<div class="card-s" style="margin-bottom: 18px;">
+			<div class="card-header">
+				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
+					<Clock size={16} strokeWidth={1.6} style="color: var(--fg-muted);" />
+					Completed ({filteredInactiveSessions.length})
+				</h3>
+			</div>
+			<div class="card-body-s tight">
+				<table class="tbl">
+					<thead>
+						<tr><th>Course</th><th>Joined</th><th>Left</th><th>Duration</th><th>Status</th></tr>
+					</thead>
+					<tbody>
+						{#each filteredInactiveSessions as session}
+							<tr style="opacity: 0.85;">
+								<td><div class="strong">{session.course.name}</div></td>
+								<td>{StudentSessionService.formatDate(session.dateOfJoining)}</td>
+								<td>{session.dateOfDisjoining ? StudentSessionService.formatDate(session.dateOfDisjoining) : '—'}</td>
+								<td>{StudentSessionService.calculateSessionDuration(session)}</td>
+								<td><Badge kind="neutral">Completed</Badge></td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	{/if}
+
+	{#if sessions.length === 0}
+		<div class="card-s">
+			<div class="card-body-s">
+				<div class="empty-s">
+					<div class="glyph">∅</div>
+					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No sessions yet</div>
+					<div style="margin-top: 4px;">This student hasn't been enrolled in any courses.</div>
+					<div style="margin-top: 14px;">
+						<button class="btn-s btn-primary-s" on:click={openEnrollmentModal}>
+							<Plus size={14} strokeWidth={1.8} /> Add first session
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+{/if}
+
 {#if showEnrollmentModal}
-	<div class="modal modal-open">
-		<div class="modal-box max-w-2xl">
-			<h3 class="font-bold text-lg flex items-center gap-2">
-				<Plus class="w-5 h-5 text-primary" />
-				Add Session
-			</h3>
-			
-			<div class="py-4 space-y-4">
-				<!-- Session Type Selection -->
-				<div class="form-control">
-					<label class="label">
-						<span class="label-text">Session Type</span>
-					</label>
-					<div class="flex gap-4">
-						<label class="label cursor-pointer">
-							<input 
-								type="radio" 
-								name="sessionType" 
-								value="active" 
-								bind:group={sessionType}
-								class="radio radio-primary"
-								disabled={enrollmentLoading}
-							/>
-							<span class="label-text ml-2">Active Session</span>
-						</label>
-						<label class="label cursor-pointer">
-							<input 
-								type="radio" 
-								name="sessionType" 
-								value="historical" 
-								bind:group={sessionType}
-								class="radio radio-secondary"
-								disabled={enrollmentLoading}
-							/>
-							<span class="label-text ml-2">Historical Session</span>
-						</label>
-					</div>
-					<label class="label">
-						<span class="label-text-alt">
-							{sessionType === 'active' ? 'Create an ongoing enrollment' : 'Add a completed session from the past'}
-						</span>
-					</label>
+	<div class="modal-veil" on:click={closeEnrollmentModal} on:keydown={(e) => e.key === 'Escape' && closeEnrollmentModal()} role="presentation">
+		<div class="modal-s modal-lg" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
+			<div class="modal-head">
+				<div>
+					<h3 class="modal-title-s">Add <em style="color: var(--accent); font-style: italic;">session</em></h3>
+					<div class="modal-sub">Enrol the student in a course or backfill historical session.</div>
 				</div>
+				<button class="btn-s btn-ghost-s btn-icon-s" on:click={closeEnrollmentModal} disabled={enrollmentLoading} aria-label="Close"><X size={16} strokeWidth={1.6} /></button>
+			</div>
+			<div class="modal-body-s">
+				<div style="display: flex; flex-direction: column; gap: 14px;">
+					<div class="field">
+						<label>Session type</label>
+						<div class="seg">
+							<button class:active={sessionType === 'active'} on:click={() => (sessionType = 'active')} disabled={enrollmentLoading}>Active</button>
+							<button class:active={sessionType === 'historical'} on:click={() => (sessionType = 'historical')} disabled={enrollmentLoading}>Historical</button>
+						</div>
+						<span class="hint">{sessionType === 'active' ? 'Create an ongoing enrolment.' : 'Backfill a completed past session.'}</span>
+					</div>
 
-				<!-- Course Selection -->
-				<div class="form-control">
-					<label class="label" for="course-select">
-						<span class="label-text">Select Course</span>
-					</label>
-					<select 
-						id="course-select"
-						class="select select-bordered w-full"
-						bind:value={selectedCourseId}
-						disabled={enrollmentLoading}
-					>
-						<option value="">Choose a course...</option>
-						{#if sessionType === 'active'}
-							{#each availableCourses as course}
-								<option value={course.id}>{course.name}</option>
-							{/each}
-						{:else}
-							{#each courses as course}
-								<option value={course.id}>{course.name}</option>
-							{/each}
+					<div class="field">
+						<label for="course-select">Course</label>
+						<select id="course-select" class="select-s" bind:value={selectedCourseId} disabled={enrollmentLoading}>
+							<option value="">Choose a course…</option>
+							{#if sessionType === 'active'}
+								{#each availableCourses as course}<option value={course.id}>{course.name}</option>{/each}
+							{:else}
+								{#each courses as course}<option value={course.id}>{course.name}</option>{/each}
+							{/if}
+						</select>
+						{#if sessionType === 'active' && availableCourses.length === 0}
+							<span class="field-error">All available courses already enrolled, or no courses available.</span>
 						{/if}
-					</select>
-					{#if sessionType === 'active' && availableCourses.length === 0}
-						<label class="label">
-							<span class="label-text-alt text-warning">
-								All available courses are already enrolled or no courses available
-							</span>
-						</label>
+					</div>
+
+					<div class="field">
+						<label for="join-date">Join date {sessionType === 'historical' ? '(required)' : '(optional)'}</label>
+						<input id="join-date" type="datetime-local" class="input-s" bind:value={customJoinDate} disabled={enrollmentLoading} required={sessionType === 'historical'} />
+						<span class="hint">{sessionType === 'active' ? 'Leave empty to use current date.' : 'When did the student join?'}</span>
+					</div>
+
+					{#if sessionType === 'historical'}
+						<div class="field">
+							<label for="disjoin-date">End date (required)</label>
+							<input id="disjoin-date" type="datetime-local" class="input-s" bind:value={customDisjoinDate} disabled={enrollmentLoading} required />
+							<span class="hint">When did the student leave/complete?</span>
+						</div>
+					{/if}
+
+					{#if error}
+						<div class="callout danger">
+							<AlertCircle size={16} strokeWidth={1.6} />
+							<div class="callout-body">{error}</div>
+						</div>
 					{/if}
 				</div>
-
-				<!-- Join Date -->
-				<div class="form-control">
-					<label class="label" for="join-date">
-						<span class="label-text">
-							Join Date {sessionType === 'historical' ? '(Required)' : '(Optional)'}
-						</span>
-					</label>
-					<input 
-						id="join-date"
-						type="datetime-local"
-						class="input input-bordered w-full"
-						bind:value={customJoinDate}
-						disabled={enrollmentLoading}
-						required={sessionType === 'historical'}
-					/>
-					<label class="label">
-						<span class="label-text-alt">
-							{sessionType === 'active' ? 'Leave empty to use current date and time' : 'When did the student join this course?'}
-						</span>
-					</label>
-				</div>
-
-				<!-- End Date (for historical sessions) -->
-				{#if sessionType === 'historical'}
-					<div class="form-control">
-						<label class="label" for="disjoin-date">
-							<span class="label-text">End Date (Required)</span>
-						</label>
-						<input 
-							id="disjoin-date"
-							type="datetime-local"
-							class="input input-bordered w-full"
-							bind:value={customDisjoinDate}
-							disabled={enrollmentLoading}
-							required
-						/>
-						<label class="label">
-							<span class="label-text-alt">When did the student complete/leave this course?</span>
-						</label>
-					</div>
-				{/if}
-
-				<!-- Error Display -->
-				{#if error}
-					<div class="alert alert-error">
-						<AlertCircle class="w-5 h-5" />
-						<span>{error}</span>
-					</div>
-				{/if}
 			</div>
-
-			<div class="modal-action">
-				<button 
-					class="btn btn-ghost"
-					on:click={closeEnrollmentModal}
-					disabled={enrollmentLoading}
-				>
-					<X class="w-4 h-4" />
-					Cancel
-				</button>
-				<button 
-					class="btn"
-					class:btn-primary={sessionType === 'active'}
-					class:btn-secondary={sessionType === 'historical'}
-					on:click={handleEnrollment}
-					disabled={enrollmentLoading || !selectedCourseId || (sessionType === 'active' && availableCourses.length === 0)}
-				>
-					{#if enrollmentLoading}
-						<span class="loading loading-spinner loading-sm"></span>
-					{:else if sessionType === 'active'}
-						<CheckCircle class="w-4 h-4" />
-					{:else}
-						<Calendar class="w-4 h-4" />
-					{/if}
-					{sessionType === 'active' ? 'Enroll Student' : 'Add Historical Session'}
+			<div class="modal-foot">
+				<button class="btn-s btn-secondary-s" on:click={closeEnrollmentModal} disabled={enrollmentLoading}><X size={14} strokeWidth={1.6} /> Cancel</button>
+				<button class="btn-s btn-primary-s" on:click={handleEnrollment} disabled={enrollmentLoading || !selectedCourseId || (sessionType === 'active' && availableCourses.length === 0)}>
+					{#if enrollmentLoading}<span class="spinner"></span>{:else if sessionType === 'active'}<CheckCircle size={14} strokeWidth={1.8} />{:else}<Calendar size={14} strokeWidth={1.8} />{/if}
+					{sessionType === 'active' ? 'Enrol student' : 'Add historical session'}
 				</button>
 			</div>
 		</div>
-		<div class="modal-backdrop" on:click={closeEnrollmentModal}></div>
 	</div>
 {/if}
 
-<!-- End Session Confirmation Modal -->
 {#if showConfirmModal && sessionToEnd}
-	<div class="modal modal-open">
-		<div class="modal-box">
-			<div class="flex items-start gap-4">
-				<div class="flex-shrink-0">
-					<AlertTriangle class="w-8 h-8 text-warning" />
+	<div class="modal-veil" on:click={cancelEndSession} on:keydown={(e) => e.key === 'Escape' && cancelEndSession()} role="presentation">
+		<div class="modal-s" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
+			<div class="modal-head">
+				<div>
+					<h3 class="modal-title-s">End <em style="color: var(--danger); font-style: italic;">session</em>?</h3>
+					<div class="modal-sub">This will mark the session completed today.</div>
 				</div>
-				<div class="flex-1">
-					<h3 class="font-bold text-lg text-base-content">Confirm End Session</h3>
-					<div class="py-4 space-y-3">
-						<p class="text-base-content/80">
-							Are you sure you want to end this session? This action <strong>cannot be undone</strong>.
-						</p>
-						
-						<div class="bg-base-200 p-4 rounded-lg">
-							<div class="space-y-2">
-								<div class="flex items-center gap-2">
-									<BookOpen class="w-4 h-4 text-base-content/60" />
-									<span class="font-semibold">{sessionToEnd.course.name}</span>
-								</div>
-								<div class="flex items-center gap-2">
-									<Calendar class="w-4 h-4 text-base-content/60" />
-									<span class="text-sm">
-										Started: {StudentSessionService.formatDate(sessionToEnd.dateOfJoining)}
-									</span>
-								</div>
-								<div class="flex items-center gap-2">
-									<Clock class="w-4 h-4 text-base-content/60" />
-									<span class="text-sm">
-										Duration: {StudentSessionService.calculateSessionDuration(sessionToEnd)}
-									</span>
-								</div>
-							</div>
-						</div>
-
-						<div class="alert alert-warning">
-							<AlertTriangle class="w-5 h-5" />
-							<div class="text-sm">
-								<div class="font-semibold">Important:</div>
-								<ul class="list-disc list-inside mt-1 space-y-1">
-									<li>This will mark the session as completed with today's date</li>
-									<li>The student will be unenrolled from this course</li>
-									<li>This action cannot be reversed</li>
-									<li>Historical data will be preserved for reporting</li>
-								</ul>
-							</div>
+				<button class="btn-s btn-ghost-s btn-icon-s" on:click={cancelEndSession} disabled={endingSession} aria-label="Close"><X size={16} strokeWidth={1.6} /></button>
+			</div>
+			<div class="modal-body-s">
+				<div class="card-s" style="background: var(--bg-elev); margin-bottom: 14px;">
+					<div class="card-body-s">
+						<div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+							<div style="display: flex; align-items: center; gap: 8px;"><BookOpen size={14} strokeWidth={1.6} style="color: var(--accent);" /><span class="strong">{sessionToEnd.course.name}</span></div>
+							<div style="display: flex; align-items: center; gap: 8px;"><Calendar size={13} strokeWidth={1.6} style="color: var(--fg-muted);" /><span>Started: {StudentSessionService.formatDate(sessionToEnd.dateOfJoining)}</span></div>
+							<div style="display: flex; align-items: center; gap: 8px;"><Clock size={13} strokeWidth={1.6} style="color: var(--fg-muted);" /><span>Duration: {StudentSessionService.calculateSessionDuration(sessionToEnd)}</span></div>
 						</div>
 					</div>
 				</div>
+				<div class="callout">
+					<AlertTriangle size={16} strokeWidth={1.6} />
+					<div>
+						<div class="callout-title">Cannot be undone</div>
+						<div class="callout-body">The student will be unenrolled. Historical data is preserved for reporting.</div>
+					</div>
+				</div>
 			</div>
-
-			<div class="modal-action">
-				<button 
-					class="btn btn-ghost"
-					on:click={cancelEndSession}
-					disabled={endingSession}
-				>
-					<X class="w-4 h-4" />
-					Cancel
-				</button>
-				<button 
-					class="btn btn-error"
-					on:click={confirmEndSession}
-					disabled={endingSession}
-				>
-					{#if endingSession}
-						<span class="loading loading-spinner loading-sm"></span>
-					{:else}
-						<AlertTriangle class="w-4 h-4" />
-					{/if}
-					Yes, End Session
+			<div class="modal-foot">
+				<button class="btn-s btn-secondary-s" on:click={cancelEndSession} disabled={endingSession}>Cancel</button>
+				<button class="btn-s btn-danger-s" on:click={confirmEndSession} disabled={endingSession}>
+					{#if endingSession}<span class="spinner"></span>{:else}<AlertTriangle size={14} strokeWidth={1.8} />{/if}
+					Yes, end session
 				</button>
 			</div>
 		</div>
-		<div class="modal-backdrop" on:click={cancelEndSession}></div>
 	</div>
 {/if}
-
-<style>
-	.stat {
-		padding: 1.5rem;
-	}
-</style>

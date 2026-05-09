@@ -2,184 +2,205 @@
 	import { onMount } from 'svelte';
 	import { PaymentService, type DateRangeParams } from '$lib/api/paymentService';
 	import type { Payment } from '$lib/types/payment';
-	import { IndianRupee, Calendar, Filter, TrendingUp, BarChart3, Download } from 'lucide-svelte';
+	import { Calendar, Filter, Download, AlertCircle } from 'lucide-svelte';
+	import Badge from '$lib/components/Badge.svelte';
+	import Money from '$lib/components/Money.svelte';
+	import Select from '$lib/components/Select.svelte';
 
-	// Date range state
 	let startDate = '';
 	let endDate = '';
-	
-	// Filter state
+
 	let selectedCourse: string | null = null;
 	let selectedType: string | null = null;
 	let selectedTerm: number | null = null;
-	
-	// Data state
+
 	let payments: Payment[] = [];
 	let loading = false;
 	let error: string | null = null;
-	
-	// Available filter options
+
 	let courses: string[] = [];
-	let paymentTypes = ['REGULAR', 'ADDITIONAL'];
-	
-	// Aggregated data
+	const paymentTypes = ['REGULAR', 'ADDITIONAL'];
+
 	let totalAmount = 0;
 	let totalPayments = 0;
 	let totalCollected = 0;
 	let totalDiscount = 0;
 	let totalFeeCleared = 0;
-	let additionalPaymentData: { label: string; amount: number; count: number }[] = [];
-	let courseData: { course: string; amount: number; count: number }[] = [];
-	
-	// Initialize with current month
-	onMount(() => {
+	type GroupBy = 'course' | 'month' | 'type' | 'label' | 'term' | 'none';
+	type SummaryRow = { key: string; label: string; sub?: string; amount: number; count: number };
+
+	let summaryGroupBy: GroupBy = 'course';
+	let summaryRows: SummaryRow[] = [];
+	let summaryMax = 1;
+
+	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+	function paymentTotal(p: Payment): number {
+		return p.amountPaid + (p.discountAmount || 0);
+	}
+
+	function rebuildSummary() {
+		if (summaryGroupBy === 'none') {
+			summaryRows = [
+				{
+					key: 'total',
+					label: 'All payments',
+					amount: payments.reduce((s, p) => s + paymentTotal(p), 0),
+					count: payments.length
+				}
+			];
+			summaryMax = summaryRows[0].amount || 1;
+			return;
+		}
+		const map = new Map<string, SummaryRow>();
+		for (const p of payments) {
+			const dt = new Date(p.date);
+			let key: string;
+			let label: string;
+			let sub: string | undefined;
+			switch (summaryGroupBy) {
+				case 'course':
+					key = p.courseName || 'Other';
+					label = key;
+					break;
+				case 'month':
+					key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, '0')}`;
+					label = `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
+					break;
+				case 'type':
+					key = p.paymentType;
+					label = p.paymentType === 'REGULAR' ? 'Term payment' : p.paymentType === 'ADDITIONAL' ? 'Additional' : 'Other';
+					break;
+				case 'label':
+					key = p.label || 'No label';
+					label = key;
+					break;
+				case 'term':
+					key = `${p.feeStructure?.year ?? '—'}-T${p.feeStructure?.termName ?? '—'}`;
+					label = p.feeStructure?.termName ? `Term ${p.feeStructure.termName}` : 'No term';
+					sub = p.feeStructure?.year ? String(p.feeStructure.year) : undefined;
+					break;
+			}
+			const ex = map.get(key) ?? { key, label, sub, amount: 0, count: 0 };
+			ex.amount += paymentTotal(p);
+			ex.count += 1;
+			map.set(key, ex);
+		}
+		summaryRows = Array.from(map.values()).sort((a, b) =>
+			summaryGroupBy === 'month' ? a.key.localeCompare(b.key) : b.amount - a.amount
+		);
+		summaryMax = Math.max(...summaryRows.map((r) => r.amount), 1);
+	}
+
+	function setGroupBy(g: GroupBy) {
+		summaryGroupBy = g;
+		rebuildSummary();
+	}
+
+	function setQuickThisYear() {
 		const now = new Date();
-		const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-		const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-		
+		startDate = formatDateForInput(new Date(now.getFullYear(), 0, 1));
+		endDate = formatDateForInput(new Date(now.getFullYear(), 11, 31, 23, 59, 59));
+		loadPayments();
+	}
+	function setQuickLastYear() {
+		const now = new Date();
+		startDate = formatDateForInput(new Date(now.getFullYear() - 1, 0, 1));
+		endDate = formatDateForInput(new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59));
+		loadPayments();
+	}
+
+	function formatRangeLabel(s: string, e: string): string {
+		if (!s || !e) return '';
+		const sd = new Date(s);
+		const ed = new Date(e);
+		const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' };
+		// If full year range, just show the year
+		if (
+			sd.getMonth() === 0 && sd.getDate() === 1 &&
+			ed.getMonth() === 11 && ed.getDate() === 31 &&
+			sd.getFullYear() === ed.getFullYear()
+		) return String(sd.getFullYear());
+		return `${sd.toLocaleDateString('en-IN', opts)} → ${ed.toLocaleDateString('en-IN', opts)}`;
+	}
+
+	onMount(() => {
+		// Default to the current year so the summary is meaningful out of the gate.
+		const now = new Date();
+		const firstDay = new Date(now.getFullYear(), 0, 1);
+		const lastDay = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 		startDate = formatDateForInput(firstDay);
 		endDate = formatDateForInput(lastDay);
-		
 		loadPayments();
 	});
-	
-	function formatDateForInput(date: Date): string {
-		const year = date.getFullYear();
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const day = String(date.getDate()).padStart(2, '0');
-		return `${year}-${month}-${day}`;
+
+	function formatDateForInput(d: Date): string {
+		const y = d.getFullYear();
+		const m = String(d.getMonth() + 1).padStart(2, '0');
+		const day = String(d.getDate()).padStart(2, '0');
+		return `${y}-${m}-${day}`;
 	}
-	
-	function toISOString(dateStr: string, isEnd = false): string {
-		const [year, month, day] = dateStr.split('-');
-		if (isEnd) {
-			return `${year}-${month}-${day}T23:59:59`;
-		}
-		return `${year}-${month}-${day}T00:00:00`;
+
+	function toISOString(s: string, isEnd = false): string {
+		const [y, m, d] = s.split('-');
+		return isEnd ? `${y}-${m}-${d}T23:59:59` : `${y}-${m}-${d}T00:00:00`;
 	}
-	
+
 	async function loadPayments() {
 		if (!startDate || !endDate) return;
-		
 		loading = true;
 		error = null;
-		
 		try {
 			const params: DateRangeParams = {
 				startDate: toISOString(startDate),
 				endDate: toISOString(endDate, true)
 			};
-			
-			// Call appropriate API based on filters
-			if (selectedCourse) {
-				payments = await PaymentService.getPaymentsByCourse(selectedCourse, params);
-			} else if (selectedType) {
-				payments = await PaymentService.getPaymentsByType(selectedType, params);
-			} else if (selectedTerm) {
-				payments = await PaymentService.getPaymentsByTerm(selectedTerm, params);
-			} else {
-				payments = await PaymentService.getPaymentsByDateRange(params);
-			}
-			
-			// Extract unique courses
-			courses = [...new Set(payments.map(p => p.courseName).filter(Boolean) as string[])];
-			
-			// Calculate aggregations
+			if (selectedCourse) payments = await PaymentService.getPaymentsByCourse(selectedCourse, params);
+			else if (selectedType) payments = await PaymentService.getPaymentsByType(selectedType, params);
+			else if (selectedTerm) payments = await PaymentService.getPaymentsByTerm(selectedTerm, params);
+			else payments = await PaymentService.getPaymentsByDateRange(params);
+
+			courses = [...new Set(payments.map((p) => p.courseName).filter(Boolean) as string[])];
 			calculateAggregations();
 		} catch (err) {
 			error = 'Failed to load payments. Please try again.';
-			console.error('Error loading payments:', err);
 		} finally {
 			loading = false;
 		}
 	}
-	
+
 	function calculateAggregations() {
-		// Total calculations
 		totalPayments = payments.length;
-		totalAmount = payments.reduce((sum, p) => sum + p.amountPaid + (p.discountAmount || 0), 0);
-		totalCollected = payments.reduce((sum, p) => sum + p.amountPaid, 0);
-		totalDiscount = payments.reduce((sum, p) => sum + (p.discountAmount || 0), 0);
+		totalAmount = payments.reduce((s, p) => s + paymentTotal(p), 0);
+		totalCollected = payments.reduce((s, p) => s + p.amountPaid, 0);
+		totalDiscount = payments.reduce((s, p) => s + (p.discountAmount || 0), 0);
 		totalFeeCleared = totalCollected + totalDiscount;
-		
-		// Additional payment aggregation by remarks
-		const additionalMap = new Map<string, { amount: number; count: number }>();
-		payments
-			.filter(payment => payment.paymentType === 'ADDITIONAL')
-			.forEach(payment => {
-				const label = payment.label || 'No Label';
-				const existing = additionalMap.get(label) || { amount: 0, count: 0 };
-				existing.amount += payment.amountPaid + (payment.discountAmount || 0);
-				existing.count += 1;
-				additionalMap.set(label, existing);
-			});
-		
-		additionalPaymentData = Array.from(additionalMap.entries())
-			.map(([label, value]) => ({ label, ...value }))
-			.sort((a, b) => b.amount - a.amount);
-		
-		// Course aggregation
-		const courseMap = new Map<string, { amount: number; count: number }>();
-		payments.forEach(payment => {
-			const course = payment.courseName || 'Other';
-			const existing = courseMap.get(course) || { amount: 0, count: 0 };
-			existing.amount += payment.amountPaid + (payment.discountAmount || 0);
-			existing.count += 1;
-			courseMap.set(course, existing);
-		});
-		
-		courseData = Array.from(courseMap.entries())
-			.map(([course, value]) => ({ course, ...value }))
-			.sort((a, b) => b.amount - a.amount);
+		rebuildSummary();
 	}
-	
-	function formatCurrency(amount: number): string {
-		return amount.toLocaleString('en-IN');
+
+	function formatDateShort(s: string): string {
+		try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
+		catch { return s; }
 	}
-	
-	function formatDate(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
-	}
-	
-	function formatDateShort(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric'
-		});
-	}
-	
+
 	function clearFilters() {
 		selectedCourse = null;
 		selectedType = null;
 		selectedTerm = null;
 		loadPayments();
 	}
-	
+
 	function setQuickRange(range: string) {
 		const now = new Date();
 		let start: Date;
 		let end: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-		
 		switch (range) {
-			case 'today':
-				start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-				break;
+			case 'today': start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
 			case 'yesterday':
 				start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
 				end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
 				break;
-			case 'week':
-				start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-				break;
+			case 'week': start = new Date(now.getTime() - 7 * 86400000); break;
 			case 'month':
 				start = new Date(now.getFullYear(), now.getMonth(), 1);
 				end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
@@ -188,422 +209,261 @@
 				start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 				end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 				break;
-			default:
-				start = new Date(now.getFullYear(), now.getMonth(), 1);
+			default: start = new Date(now.getFullYear(), now.getMonth(), 1);
 		}
-		
 		startDate = formatDateForInput(start);
 		endDate = formatDateForInput(end);
 		loadPayments();
 	}
-	
+
 	function downloadCSV() {
-		// CSV header
-		const headers = [
-			'Date',
-			'Student Name',
-			'Student ID',
-			'Course',
-			'Year',
-			'Term',
-			'Type',
-			'Student Remarks',
-			'Payment Remarks',
-			'Fee Paid',
-			'Discount',
-			'Total'
-		];
-		
-		// CSV rows
-		const rows = payments.map(payment => [
-			formatDateShort(payment.date),
-			payment.student.studentName || 'N/A',
-			payment.student.admissionNo || 'N/A',
-			payment.courseName || 'N/A',
-			payment.feeStructure?.year || 'N/A',
-			payment.feeStructure?.term || 'N/A',
-			payment.paymentType === 'REGULAR' ? 'Regular' : 'Additional',
-			payment.student.remarks || '-',
-			payment.remarks || '-',
-			payment.amountPaid,
-			payment.discountAmount || 0,
-			payment.amountPaid + (payment.discountAmount || 0)
+		const headers = ['Date','Student Name','Student ID','Course','Year','Term','Type','Student Remarks','Payment Remarks','Fee Paid','Discount','Total'];
+		const rows = payments.map((p) => [
+			formatDateShort(p.date),
+			p.student.studentName || 'N/A',
+			p.student.admissionNo || 'N/A',
+			p.courseName || 'N/A',
+			p.feeStructure?.year || 'N/A',
+			p.feeStructure?.term || 'N/A',
+			p.paymentType === 'REGULAR' ? 'Regular' : 'Additional',
+			p.student.remarks || '-',
+			p.remarks || '-',
+			p.amountPaid,
+			p.discountAmount || 0,
+			p.amountPaid + (p.discountAmount || 0)
 		]);
-		
-		// Add totals row
-		const totalRow = [
-			'',
-			'',
-			'',
-			'',
-			'',
-			'',
-			'',
-			'',
-			'Total:',
-			payments.reduce((sum, p) => sum + p.amountPaid, 0),
-			payments.reduce((sum, p) => sum + (p.discountAmount || 0), 0),
-			totalAmount
-		];
-		
-		// Combine headers and rows
-		const csvContent = [
+		const totalRow = ['','','','','','','','','Total:', payments.reduce((s, p) => s + p.amountPaid, 0), payments.reduce((s, p) => s + (p.discountAmount || 0), 0), totalAmount];
+		const csv = [
 			headers.join(','),
-			...rows.map(row => row.map(cell => {
-				// Escape cells containing commas or quotes
-				const cellStr = String(cell);
-				if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-					return `"${cellStr.replace(/"/g, '""')}"`;
-				}
-				return cellStr;
+			...rows.map((r) => r.map((cell) => {
+				const s = String(cell);
+				return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
 			}).join(',')),
 			totalRow.join(',')
 		].join('\n');
-		
-		// Create blob and download
-		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
 		const link = document.createElement('a');
-		const url = URL.createObjectURL(blob);
-		
-		link.setAttribute('href', url);
-		link.setAttribute('download', `payment-report-${startDate}-to-${endDate}.csv`);
-		link.style.visibility = 'hidden';
-		
+		link.href = URL.createObjectURL(blob);
+		link.download = `payment-report-${startDate}-to-${endDate}.csv`;
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
 	}
-	
-	// Calculate max for bar chart scaling
-	$: maxAdditional = Math.max(...additionalPaymentData.map(d => d.amount), 1);
-	$: maxCourse = Math.max(...courseData.map(d => d.amount), 1);
+
 </script>
 
 <svelte:head>
-	<title>Payment Dashboard - Revathi Arts and Music School</title>
+	<title>Payments — Revathi Arts</title>
 </svelte:head>
 
-<div class="container mx-auto p-6 max-w-full">
-	<!-- Header -->
-	<div class="mb-6">
-		<div class="flex justify-between items-start">
+<div class="page">
+	<div class="page-head">
+		<div class="page-head-row">
 			<div>
-				<h1 class="text-3xl font-bold mb-2 flex items-center gap-3">
-					<IndianRupee class="w-8 h-8 text-primary" />
-					Payment Dashboard
-				</h1>
-				<p class="text-base-content/70">
-					View and analyze payment history across all students
-				</p>
+				<h1 class="page-title">Payments <em>dashboard</em></h1>
+				<p class="page-subtitle">Track collections across the school by date, course or type.</p>
 			</div>
-			<button class="btn btn-primary" on:click={downloadCSV}>
-				<Download class="w-5 h-5" />
-				Download CSV
-			</button>
+			<div style="display: flex; gap: 8px;">
+				<button class="btn-s btn-primary-s" onclick={downloadCSV}>
+					<Download size={14} strokeWidth={1.6} /> Export CSV
+				</button>
+			</div>
 		</div>
 	</div>
 
-	<!-- Filters Card -->
-	<div class="card bg-base-100 shadow-xl mb-6">
-		<div class="card-body">
-			<h2 class="card-title mb-4">
-				<Filter class="w-5 h-5" />
+	<div class="card-s" style="margin-bottom: 18px;">
+		<div class="card-header">
+			<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
+				<Filter size={16} strokeWidth={1.6} style="color: var(--fg-muted);" />
 				Filters
-			</h2>
-			
-			<!-- Quick Date Ranges -->
-			<div class="flex flex-wrap gap-2 mb-4">
-				<button class="btn btn-sm btn-outline" on:click={() => setQuickRange('today')}>Today</button>
-				<button class="btn btn-sm btn-outline" on:click={() => setQuickRange('yesterday')}>Yesterday</button>
-				<button class="btn btn-sm btn-outline" on:click={() => setQuickRange('week')}>Last 7 Days</button>
-				<button class="btn btn-sm btn-outline" on:click={() => setQuickRange('month')}>This Month</button>
-				<button class="btn btn-sm btn-outline" on:click={() => setQuickRange('lastMonth')}>Last Month</button>
+			</h3>
+		</div>
+		<div class="card-body-s">
+			<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;">
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => setQuickRange('today')}>Today</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => setQuickRange('yesterday')}>Yesterday</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => setQuickRange('week')}>Last 7 days</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => setQuickRange('month')}>This month</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => setQuickRange('lastMonth')}>Last month</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={setQuickThisYear}>This year</button>
+				<button class="btn-s btn-secondary-s btn-sm-s" onclick={setQuickLastYear}>Last year</button>
 			</div>
-			
-			<!-- Date Range -->
-			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-				<div class="form-control">
-					<label class="label" for="startDate">
-						<span class="label-text">Start Date</span>
-					</label>
-					<input
-						id="startDate"
-						type="date"
-						class="input input-bordered"
-						bind:value={startDate}
-						on:change={loadPayments}
-					/>
+			<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+				<div class="field">
+					<label for="startDate">Start date</label>
+					<input id="startDate" type="date" class="input-s" bind:value={startDate} onchange={loadPayments} />
 				</div>
-				
-				<div class="form-control">
-					<label class="label" for="endDate">
-						<span class="label-text">End Date</span>
-					</label>
-					<input
-						id="endDate"
-						type="date"
-						class="input input-bordered"
-						bind:value={endDate}
-						on:change={loadPayments}
-					/>
+				<div class="field">
+					<label for="endDate">End date</label>
+					<input id="endDate" type="date" class="input-s" bind:value={endDate} onchange={loadPayments} />
 				</div>
-				
-				<div class="form-control">
-					<label class="label" for="courseFilter">
-						<span class="label-text">Course</span>
-					</label>
-					<select
-						id="courseFilter"
-						class="select select-bordered"
+				<div class="field">
+					<span class="field-label">Course</span>
+					<Select
 						bind:value={selectedCourse}
-						on:change={loadPayments}
-					>
-						<option value={null}>All Courses</option>
-						{#each courses as course}
-							<option value={course}>{course}</option>
-						{/each}
-					</select>
+						options={[{ value: null, label: 'All courses' }, ...courses.map((c) => ({ value: c, label: c }))]}
+						onChange={loadPayments}
+						ariaLabel="Course filter"
+					/>
 				</div>
-				
-				<div class="form-control">
-					<label class="label" for="typeFilter">
-						<span class="label-text">Payment Type</span>
-					</label>
-					<select
-						id="typeFilter"
-						class="select select-bordered"
+				<div class="field">
+					<span class="field-label">Type</span>
+					<Select
 						bind:value={selectedType}
-						on:change={loadPayments}
-					>
-						<option value={null}>All Types</option>
-						{#each paymentTypes as type}
-							<option value={type}>{type === 'REGULAR' ? 'Regular' : 'Additional'}</option>
-						{/each}
-					</select>
+						options={[
+							{ value: null, label: 'All types' },
+							{ value: 'REGULAR', label: 'Regular' },
+							{ value: 'ADDITIONAL', label: 'Additional' }
+						]}
+						onChange={loadPayments}
+						ariaLabel="Type filter"
+					/>
 				</div>
 			</div>
-			
 			{#if selectedCourse || selectedType || selectedTerm}
-				<div class="flex justify-end">
-					<button class="btn btn-sm btn-ghost" on:click={clearFilters}>
-						Clear Filters
-					</button>
+				<div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+					<button class="btn-s btn-ghost-s btn-sm-s" onclick={clearFilters}>Clear filters</button>
 				</div>
 			{/if}
 		</div>
 	</div>
 
-	<!-- Statistics Cards -->
-	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-		<div class="stats shadow">
-			<div class="stat">
-				<div class="stat-figure text-primary">
-					<IndianRupee class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Total Fee Cleared</div>
-				<div class="stat-value text-primary">₹{formatCurrency(totalFeeCleared)}</div>
-				<div class="stat-desc">Fee + Discount</div>
-			</div>
+	<div class="kpi-grid" style="margin-bottom: 18px;">
+		<div class="kpi">
+			<div class="kpi-label">Fee cleared</div>
+			<div class="kpi-value" style="color: var(--accent);"><Money value={totalFeeCleared} mono={false} /></div>
+			<div class="kpi-meta"><span>Fee + discount</span></div>
 		</div>
-		
-		<div class="stats shadow">
-			<div class="stat">
-				<div class="stat-figure text-success">
-					<IndianRupee class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Total Collected</div>
-				<div class="stat-value text-success">₹{formatCurrency(totalCollected)}</div>
-				<div class="stat-desc">Amount received</div>
-			</div>
+		<div class="kpi">
+			<div class="kpi-label">Collected</div>
+			<div class="kpi-value" style="color: var(--ok);"><Money value={totalCollected} mono={false} /></div>
+			<div class="kpi-meta"><span>Amount received</span></div>
 		</div>
-		
-		<div class="stats shadow">
-			<div class="stat">
-				<div class="stat-figure text-warning">
-					<IndianRupee class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Total Discount</div>
-				<div class="stat-value text-warning">₹{formatCurrency(totalDiscount)}</div>
-				<div class="stat-desc">Discount given</div>
-			</div>
+		<div class="kpi">
+			<div class="kpi-label">Discount</div>
+			<div class="kpi-value" style="color: var(--warn);"><Money value={totalDiscount} mono={false} /></div>
+			<div class="kpi-meta"><span>Concessions given</span></div>
 		</div>
-		
-		<div class="stats shadow">
-			<div class="stat">
-				<div class="stat-figure text-secondary">
-					<TrendingUp class="w-8 h-8" />
-				</div>
-				<div class="stat-title">Total Payments</div>
-				<div class="stat-value text-secondary">{totalPayments}</div>
-				<div class="stat-desc">Payment count</div>
-			</div>
+		<div class="kpi">
+			<div class="kpi-label">Transactions</div>
+			<div class="kpi-value">{totalPayments}</div>
+			<div class="kpi-meta"><span>Payment count</span></div>
 		</div>
 	</div>
 
-	<!-- Charts Row -->
-	<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-		<!-- Course-wise Collection Chart -->
-		<div class="card bg-base-100 shadow-xl">
-			<div class="card-body">
-				<h2 class="card-title">Course-wise Collection</h2>
-				{#if courseData.length > 0}
-					<div class="space-y-3">
-						{#each courseData as data}
-							<div>
-								<div class="flex justify-between text-sm mb-1">
-									<span class="font-medium">{data.course}</span>
-									<span class="text-base-content/70">₹{formatCurrency(data.amount)} ({data.count} payments)</span>
-								</div>
-								<div class="w-full bg-base-300 rounded-full h-4">
-									<div 
-										class="bg-primary h-4 rounded-full flex items-center justify-end px-2"
-										style="width: {(data.amount / maxCourse) * 100}%"
-									>
-										{#if (data.amount / maxCourse) > 0.2}
-											<span class="text-xs text-primary-content font-medium">₹{formatCurrency(data.amount)}</span>
-										{/if}
-									</div>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<p class="text-base-content/50 text-center py-8">No data available</p>
-				{/if}
+	<div class="card-s summary-card" style="margin-bottom: 18px;">
+		<div class="card-header">
+			<h3 class="card-title-s">
+				Summary <span class="summary-range">· {formatRangeLabel(startDate, endDate)}</span>
+			</h3>
+			<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+				<span class="muted" style="font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em;">Group by</span>
+				<div class="seg seg-sm">
+					<button class:active={summaryGroupBy === 'course'} onclick={() => setGroupBy('course')}>Course</button>
+					<button class:active={summaryGroupBy === 'month'} onclick={() => setGroupBy('month')}>Month</button>
+					<button class:active={summaryGroupBy === 'type'} onclick={() => setGroupBy('type')}>Type</button>
+					<button class:active={summaryGroupBy === 'label'} onclick={() => setGroupBy('label')}>Label</button>
+					<button class:active={summaryGroupBy === 'term'} onclick={() => setGroupBy('term')}>Term</button>
+					<button class:active={summaryGroupBy === 'none'} onclick={() => setGroupBy('none')}>Total</button>
+				</div>
 			</div>
 		</div>
-
-		<!-- Additional Payments by Remark Chart -->
-		<div class="card bg-base-100 shadow-xl">
-			<div class="card-body">
-				<h2 class="card-title">Additional Payments by Label</h2>
-				{#if additionalPaymentData.length > 0}
-					<div class="space-y-3">
-						{#each additionalPaymentData as data}
-							<div>
-								<div class="flex justify-between text-sm mb-1">
-									<span class="font-medium">{data.label}</span>
-									<span class="text-base-content/70">₹{formatCurrency(data.amount)} ({data.count} payments)</span>
-								</div>
-								<div class="w-full bg-base-300 rounded-full h-4">
-									<div 
-										class="bg-secondary h-4 rounded-full flex items-center justify-end px-2"
-										style="width: {(data.amount / maxAdditional) * 100}%"
-									>
-										{#if (data.amount / maxAdditional) > 0.2}
-											<span class="text-xs text-secondary-content font-medium">₹{formatCurrency(data.amount)}</span>
-										{/if}
-									</div>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<p class="text-base-content/50 text-center py-8">No additional payments found</p>
-				{/if}
-			</div>
+		<div class="card-body-s">
+			{#if summaryRows.length === 0}
+				<div class="muted" style="text-align: center; padding: 30px 0;">No data in range</div>
+			{:else}
+				<div class="summary-list">
+					{#each summaryRows as r (r.key)}
+						<div class="summary-row">
+							<span class="summary-name">
+								{r.label}
+								{#if r.sub}<span class="muted" style="font-size: 11px;"> · {r.sub}</span>{/if}
+							</span>
+							<span class="summary-bar"><span style="width: {(r.amount / summaryMax) * 100}%;"></span></span>
+							<span class="summary-count">{r.count}</span>
+							<span class="summary-amount">₹{r.amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</div>
 
-	<!-- Payments Table -->
-	<div class="card bg-base-100 shadow-xl">
-		<div class="card-body">
-			<h2 class="card-title mb-4">Payment Records ({totalPayments})</h2>
-			
+	<div class="card-s">
+		<div class="card-header">
+			<h3 class="card-title-s">Records ({totalPayments})</h3>
+		</div>
+		<div class="card-body-s tight">
 			{#if loading}
-				<div class="flex justify-center items-center py-12">
-					<span class="loading loading-spinner loading-lg"></span>
-				</div>
+				<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
 			{:else if error}
-				<div class="alert alert-error">
-					<span>{error}</span>
+				<div class="callout danger" style="margin: 16px;">
+					<AlertCircle size={18} strokeWidth={1.6} />
+					<div class="callout-body">{error}</div>
 				</div>
 			{:else if payments.length === 0}
-				<div class="text-center py-12">
-					<Calendar class="w-16 h-16 text-base-content/30 mx-auto mb-4" />
-					<h3 class="text-xl font-bold mb-2">No Payments Found</h3>
-					<p class="text-base-content/70">
-						No payment records found for the selected date range and filters.
-					</p>
+				<div class="empty-s">
+					<div class="glyph">∅</div>
+					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No payments found</div>
+					<div style="margin-top: 4px;">No records for the selected date range and filters.</div>
 				</div>
 			{:else}
-				<div class="overflow-x-auto">
-					<table class="table table-sm">
+				<div style="overflow-x: auto;">
+					<table class="tbl">
 						<thead>
-							<tr class="bg-base-200">
+							<tr>
 								<th>R.No</th>
-								<th class="whitespace-nowrap">Date</th>
-								<th>Student Name</th>
-								<th>Student ID</th>
+								<th>Date</th>
+								<th>Student</th>
 								<th>Course</th>
 								<th>Year</th>
 								<th>Term</th>
 								<th>Type</th>
-								<th class="min-w-[150px]">Student Remarks</th>
-								<th class="min-w-[150px]">Payment Remarks</th>
-								<th class="text-right">Fee Paid</th>
-								<th class="text-right">Discount</th>
-								<th class="text-right">Total</th>
+								<th>Student remarks</th>
+								<th>Payment remarks</th>
+								<th class="num">Paid</th>
+								<th class="num">Discount</th>
+								<th class="num">Total</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each payments as payment}
-								<tr class="hover">
+							{#each payments as p}
+								<tr>
 									<td>
-										<div class="text-center">{payment.id}</div>
-									</td>
-									<td class="whitespace-nowrap">{formatDateShort(payment.date)}</td>
-									<td>
-										<div class="font-medium">{payment.student.studentName || 'N/A'}</div>
-									</td>
-									<td>
-										{#if payment.student.admissionNo}
-											<a 
-												href="/students/{payment.student.admissionNo}" 
-												target="_blank"
-												rel="noopener noreferrer"
-												class="text-xs text-primary hover:text-primary-focus underline cursor-pointer"
-											>
-												{payment.student.admissionNo}
-											</a>
+										{#if p.student?.admissionNo}
+											<a href="/students/{p.student.admissionNo}" target="_blank" rel="noopener noreferrer" class="link-id">{p.id}</a>
 										{:else}
-											<div class="text-xs text-base-content/70">N/A</div>
+											<span class="id">{p.id}</span>
 										{/if}
 									</td>
+									<td class="muted" style="white-space: nowrap;">{formatDateShort(p.date)}</td>
 									<td>
-										<span class="badge badge-outline">{payment.courseName || 'N/A'}</span>
+										<div class="strong">{p.student.studentName || '—'}</div>
+										{#if p.student.admissionNo}
+											<a href="/students/{p.student.admissionNo}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); font-family: var(--font-mono); font-size: 11px;">{p.student.admissionNo}</a>
+										{/if}
 									</td>
+									<td>{#if p.courseName}<Badge kind="neutral">{p.courseName}</Badge>{:else}<span class="muted">—</span>{/if}</td>
+									<td class="muted">{p.feeStructure?.year || '—'}</td>
+									<td class="muted">{p.feeStructure?.term || '—'}</td>
 									<td>
-										<div class="text-center">{payment.feeStructure?.year || 'N/A'}</div>
+										{#if p.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
+										{:else}<Badge kind="accent">Additional</Badge>{/if}
 									</td>
-									<td>
-										<div class="text-center">{payment.feeStructure?.term || 'N/A'}</div>
-									</td>
-									<td>
-										<span class="badge badge-sm">
-											{payment.paymentType === 'REGULAR' ? 'Regular' : 'Additional'}
-										</span>
-									</td>
-									<td>
-										<div class="text-xs whitespace-normal break-words">{payment.student.remarks || '-'}</div>
-									</td>
-									<td>
-										<div class="text-xs whitespace-normal break-words">{payment.remarks || '-'}</div>
-									</td>
-									<td class="text-right font-mono">₹{formatCurrency(payment.amountPaid)}</td>
-									<td class="text-right font-mono">₹{formatCurrency(payment.discountAmount || 0)}</td>
-									<td class="text-right font-mono font-bold">
-										₹{formatCurrency(payment.amountPaid + (payment.discountAmount || 0))}
-									</td>
+									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.student.remarks || '—'}</td>
+									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.remarks || '—'}</td>
+									<td class="num"><Money value={p.amountPaid} /></td>
+									<td class="num"><Money value={p.discountAmount || 0} /></td>
+									<td class="num strong"><Money value={p.amountPaid + (p.discountAmount || 0)} /></td>
 								</tr>
 							{/each}
 						</tbody>
 						<tfoot>
-							<tr class="bg-base-200 font-bold">
-								<td colspan="9" class="text-right">Total:</td>
-								<td class="text-right">₹{formatCurrency(payments.reduce((sum, p) => sum + p.amountPaid, 0))}</td>
-								<td class="text-right">₹{formatCurrency(payments.reduce((sum, p) => sum + (p.discountAmount || 0), 0))}</td>
-								<td class="text-right">₹{formatCurrency(totalAmount)}</td>
+							<tr style="background: var(--bg-elev); font-weight: 600;">
+								<td colspan="9" style="text-align: right; padding: 12px 14px;">Total</td>
+								<td class="num"><Money value={payments.reduce((s, p) => s + p.amountPaid, 0)} /></td>
+								<td class="num"><Money value={payments.reduce((s, p) => s + (p.discountAmount || 0), 0)} /></td>
+								<td class="num"><Money value={totalAmount} /></td>
 							</tr>
 						</tfoot>
 					</table>
@@ -612,3 +472,88 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.summary-card .card-header { gap: 12px; flex-wrap: wrap; }
+	.summary-range { color: var(--fg-muted); font-weight: 400; font-size: 13px; }
+
+	.seg-sm {
+		display: inline-flex;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 2px;
+	}
+	.seg-sm button {
+		appearance: none;
+		background: transparent;
+		border: 0;
+		padding: 5px 10px;
+		font: inherit;
+		font-size: 12px;
+		color: var(--fg-soft);
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 120ms, color 120ms;
+	}
+	.seg-sm button:hover { color: var(--fg); }
+	.seg-sm button.active {
+		background: var(--surface);
+		color: var(--accent-deep);
+		box-shadow: 0 1px 2px oklch(0.30 0.02 60 / 0.06);
+		font-weight: 500;
+	}
+
+	.summary-list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.summary-row {
+		display: grid;
+		grid-template-columns: minmax(140px, 1.2fr) minmax(180px, 3fr) auto auto;
+		align-items: center;
+		gap: 12px;
+		padding: 6px 4px;
+		font-size: 13px;
+	}
+	.summary-name {
+		font-weight: 500;
+		color: var(--fg);
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.summary-bar {
+		height: 8px;
+		background: var(--surface-2);
+		border-radius: 999px;
+		overflow: hidden;
+	}
+	.summary-bar > span {
+		display: block;
+		height: 100%;
+		background: var(--accent);
+		border-radius: 999px;
+		transition: width 220ms ease-out;
+	}
+	.summary-count {
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		color: var(--fg-muted);
+		min-width: 28px;
+		text-align: right;
+	}
+	.summary-amount {
+		font-family: var(--font-mono);
+		font-size: 13px;
+		color: var(--fg);
+		min-width: 90px;
+		text-align: right;
+	}
+	@media (max-width: 700px) {
+		.summary-row { grid-template-columns: 1fr auto; }
+		.summary-bar, .summary-count { display: none; }
+	}
+</style>

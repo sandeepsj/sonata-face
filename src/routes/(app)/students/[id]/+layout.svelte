@@ -2,49 +2,62 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, User, Edit, CreditCard, BookOpen, Clock, Banknote, Settings, Receipt } from 'lucide-svelte';
+	import {
+		ArrowLeft,
+		User,
+		Edit,
+		CreditCard,
+		BookOpen,
+		Clock,
+		Banknote,
+		Settings,
+		Receipt,
+		Star,
+		AlertCircle,
+		Phone,
+		Hash
+	} from 'lucide-svelte';
 	import { currentStudentStore, StudentService } from '$lib';
+	import { recentsStore, favoritesStore } from '$lib/stores/recentsStore';
+	import Avatar from '$lib/components/Avatar.svelte';
+	import Badge from '$lib/components/Badge.svelte';
 	import type { LayoutData } from './$types';
 	import type { Student } from '$lib/types/student';
 
-	// Data from load function (just the admission number)
 	export let data: LayoutData;
-	
-	// Client-side state
+
 	let student: Student | null = null;
 	let loading = true;
 	let error: string | null = null;
+	let isFavorite = false;
 
-	// Subscribe to current student store
 	$: currentStudentState = $currentStudentStore;
-	
-	// Fetch student data client-side when component mounts
+
 	onMount(async () => {
 		if (!data.admissionNo) {
 			error = 'Student admission number is required';
 			loading = false;
 			return;
 		}
-
 		try {
 			loading = true;
-			// Search for student by admission number using advanced search
-			const response = await StudentService.advancedSearchStudents({ 
+			const response = await StudentService.advancedSearchStudents({
 				admissionNo: data.admissionNo,
-				size: 1 
+				size: 1
 			});
-			
-			// Check if we found the student
 			if (!response.content || response.content.length === 0) {
 				error = `Student with admission number ${data.admissionNo} not found`;
 				loading = false;
 				return;
 			}
-
 			student = response.content[0];
-			
-			// Initialize store with loaded data
 			currentStudentStore.setStudent(student);
+			recentsStore.push({
+				id: String(student.admissionNo || student.admissionId),
+				name: student.studentName || 'Unknown',
+				admissionNo: student.admissionNo ? String(student.admissionNo) : undefined
+			});
+			isFavorite = favoritesStore.isFav(String(student.admissionNo || student.admissionId));
 			loading = false;
 		} catch (err) {
 			console.error('Error loading student:', err);
@@ -53,132 +66,130 @@
 		}
 	});
 
-	// Get current path for navigation
+	function toggleFav() {
+		if (!student) return;
+		isFavorite = favoritesStore.toggle({
+			id: String(student.admissionNo || student.admissionId),
+			name: student.studentName || 'Unknown',
+			admissionNo: student.admissionNo ? String(student.admissionNo) : undefined
+		});
+	}
+
 	$: studentId = $page.params.id;
 	$: currentPath = $page.url.pathname;
 
-	// Navigation items for sidebar
 	const navigationItems = [
 		{ path: '', label: 'Overview', icon: User },
-		{ path: '/edit', label: 'Edit Details', icon: Edit },
+		{ path: '/edit', label: 'Edit', icon: Edit },
 		{ path: '/sessions', label: 'Sessions', icon: BookOpen },
-		{ path: '/payments', label: 'Payment History', icon: Banknote },
-		{ path: '/manage-payments', label: 'Manage Payments', icon: Settings },
+		{ path: '/payments', label: 'Payment history', icon: Banknote },
+		{ path: '/manage-payments', label: 'Manage payments', icon: Settings },
 		{ path: '/receipts', label: 'Receipts', icon: Receipt },
 		{ path: '/timeline', label: 'Timeline', icon: Clock },
-		{ path: '/dues', label: 'Pay Fees', icon: CreditCard },
+		{ path: '/dues', label: 'Pay fees', icon: CreditCard }
 	];
 
-	$: activeNavItems = navigationItems.map(item => ({
+	$: activeNavItems = navigationItems.map((item) => ({
 		...item,
-		active: currentPath === `/students/${studentId}${item.path}` || 
-		        (item.path === '' && currentPath === `/students/${studentId}`)
+		active:
+			currentPath === `/students/${studentId}${item.path}` ||
+			(item.path === '' && currentPath === `/students/${studentId}`)
 	}));
+
+	function navigateToTab(path: string) {
+		goto(`/students/${studentId}${path}`);
+	}
 
 	function goBack() {
 		goto('/students');
 	}
-
-	function navigateToTab(path: string, disabled = false) {
-		if (disabled) return;
-		goto(`/students/${studentId}${path}`);
-	}
 </script>
 
 <svelte:head>
-	<title>{student?.studentName || 'Loading...'} - Revathi Arts and Music School</title>
+	<title>{student?.studentName || 'Loading…'} — Revathi Arts</title>
 </svelte:head>
 
 {#if loading}
-	<div class="min-h-screen bg-base-200 flex items-center justify-center">
-		<div class="text-center">
-			<span class="loading loading-spinner loading-lg text-primary"></span>
-			<p class="mt-4 text-base-content/70">Loading student data...</p>
+	<div class="page" style="display: flex; align-items: center; justify-content: center; min-height: 60vh;">
+		<div style="text-align: center; color: var(--fg-muted);">
+			<span class="spinner spinner-lg"></span>
+			<div style="margin-top: 12px;">Loading student…</div>
 		</div>
 	</div>
 {:else if error}
-	<div class="min-h-screen bg-base-200 flex items-center justify-center">
-		<div class="card bg-base-100 shadow-xl max-w-md">
-			<div class="card-body text-center">
-				<div class="text-error text-5xl mb-4">⚠️</div>
-				<h2 class="card-title justify-center">Error Loading Student</h2>
-				<p class="text-base-content/70">{error}</p>
-				<div class="card-actions justify-center mt-4">
-					<button class="btn btn-primary" on:click={goBack}>
-						<ArrowLeft class="w-4 h-4" />
-						Back to Students
-					</button>
-				</div>
+	<div class="page">
+		<div class="callout danger" style="max-width: 520px; margin: 60px auto;">
+			<AlertCircle size={20} strokeWidth={1.6} />
+			<div style="flex: 1;">
+				<div class="callout-title">Couldn't load student</div>
+				<div class="callout-body">{error}</div>
+				<button class="btn-s btn-secondary-s btn-sm-s" style="margin-top: 10px;" on:click={goBack}>
+					<ArrowLeft size={12} strokeWidth={1.8} /> Back to students
+				</button>
 			</div>
 		</div>
 	</div>
 {:else if student}
-	<div class="min-h-screen bg-base-200">
-	<!-- Header with student info -->
-	<div class="bg-base-100 shadow-sm border-b">
-		<div class="container mx-auto p-4">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center space-x-4">
-					<button 
-						class="btn btn-ghost btn-circle"
-						on:click={goBack}
-						aria-label="Go back to students list"
-					>
-						<ArrowLeft class="w-5 h-5" />
+	<div class="page">
+		<button class="btn-s btn-ghost-s btn-sm-s" style="margin-bottom: 12px;" on:click={goBack}>
+			<ArrowLeft size={14} strokeWidth={1.6} /> All students
+		</button>
+
+		<div class="detail-hero" style="margin-bottom: 18px;">
+			<Avatar name={student.studentName || ''} size="xl" />
+			<div class="hero-body">
+				<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+					<h1 class="hero-name">{student.studentName}</h1>
+					<button class="btn-s btn-ghost-s btn-icon-s" on:click={toggleFav} aria-label="Toggle favorite" title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
+						<Star size={16} strokeWidth={1.6} fill={isFavorite ? 'currentColor' : 'none'} style={isFavorite ? 'color: var(--accent);' : ''} />
 					</button>
-					
-					<div class="flex items-center space-x-3">
-						<div>
-							<h1 class="text-xl font-bold">{student.studentName}</h1>
-							<p class="text-sm text-base-content/70">
-								Admission No: {student.admissionNo}
-							</p>
-						</div>
-					</div>
+					{#if student.status === 'active'}
+						<Badge kind="ok" dot>Active</Badge>
+					{:else if student.status}
+						<Badge kind="warn">{student.status}</Badge>
+					{/if}
+				</div>
+				<div class="hero-meta">
+					<span style="display: inline-flex; align-items: center; gap: 4px;">
+						<Hash size={12} strokeWidth={1.6} />
+						<span style="font-family: var(--font-mono);">{student.admissionNo || '—'}</span>
+					</span>
+					{#if student.className}
+						<span>· {student.className}</span>
+					{/if}
+					{#if student.school}
+						<span>· {student.school}</span>
+					{/if}
+					{#if student.contactNo}
+						<span style="display: inline-flex; align-items: center; gap: 4px;">
+							<Phone size={12} strokeWidth={1.6} />
+							<span style="font-family: var(--font-mono);">{student.contactNo}</span>
+						</span>
+					{/if}
+				</div>
+				<div class="hero-actions" style="margin-top: 10px;">
+					<button class="btn-s btn-primary-s btn-sm-s" on:click={() => navigateToTab('/dues')}>
+						<CreditCard size={14} strokeWidth={1.6} /> Pay fees
+					</button>
+					<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/receipts')}>
+						<Receipt size={14} strokeWidth={1.6} /> Receipts
+					</button>
+					<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/edit')}>
+						<Edit size={14} strokeWidth={1.6} /> Edit
+					</button>
 				</div>
 			</div>
 		</div>
-	</div>
 
-	<div class="container mx-auto p-4">
-		<div class="flex gap-6">
-			<!-- Sidebar Navigation -->
-			<div class="w-64 flex-shrink-0">
-				<div class="card bg-base-100 shadow-sm">
-					<div class="card-body p-4">
-						<h3 class="font-semibold text-sm text-base-content/70 mb-3">STUDENT MENU</h3>
-						<ul class="menu p-0 space-y-1">
-							{#each activeNavItems as item}
-								{@const isDisabled = ('disabled' in item && item.disabled) === true}
-								<li>
-									<button
-										class="flex items-center space-x-3 w-full text-left p-3 rounded-lg transition-colors"
-										class:bg-primary={item.active}
-										class:text-primary-content={item.active}
-										class:opacity-50={isDisabled && !item.active}
-										class:cursor-not-allowed={isDisabled}
-										class:hover:bg-base-200={!item.active && !isDisabled}
-										disabled={isDisabled}
-										on:click={() => navigateToTab(item.path, isDisabled)}
-									>
-										<svelte:component this={item.icon} class="w-4 h-4" />
-										<span class="text-sm">{item.label}</span>
-										{#if isDisabled}
-											<span class="badge badge-xs badge-outline ml-auto">Soon</span>
-										{/if}
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				</div>
-			</div>
-
-			<!-- Main Content Area -->
-			<div class="flex-1">
-				<slot {student} />
-			</div>
+		<div class="view-tabs" style="margin-bottom: 18px; overflow-x: auto; overflow-y: hidden;">
+			{#each activeNavItems as item}
+				<button class="view-tab" class:active={item.active} on:click={() => navigateToTab(item.path)}>
+					<svelte:component this={item.icon} size={14} strokeWidth={1.6} />
+					{item.label}
+				</button>
+			{/each}
 		</div>
+
+		<slot {student} />
 	</div>
-</div>
 {/if}

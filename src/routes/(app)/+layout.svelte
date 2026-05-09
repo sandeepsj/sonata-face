@@ -1,173 +1,256 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-		import { User, Menu, Sun, Moon, LogOut, Users, BookOpen, CreditCard, Banknote } from 'lucide-svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import {
+		Users,
+		BookOpen,
+		IndianRupee,
+		Banknote,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Search,
+		LogOut,
+		Palette as PaletteIcon,
+		ChevronDown,
+		Star,
+		History
+	} from 'lucide-svelte';
 	import { authStore } from '$lib/stores/authStore';
+	import { paletteStore, type Palette } from '$lib/stores/paletteStore';
+	import {
+		recentsStore,
+		favoritesStore,
+		sidebarCollapsedStore
+	} from '$lib/stores/recentsStore';
 
 	let { children } = $props();
-	let mobileMenuOpen = $state(false);
-	let currentTheme = $state('light'); // Default to light theme
 
-	function toggleMobileMenu() {
-		mobileMenuOpen = !mobileMenuOpen;
+	let paletteOpen = $state(false);
+	let userMenuOpen = $state(false);
+	let searchQuery = $state('');
+
+	const PALETTES: { id: Palette; label: string; swatch: string }[] = [
+		{ id: 'terracotta', label: 'Terracotta', swatch: 'oklch(0.58 0.155 38)' },
+		{ id: 'indigo', label: 'Indigo Ink', swatch: 'oklch(0.46 0.14 264)' },
+		{ id: 'olive', label: 'Olive Grove', swatch: 'oklch(0.50 0.10 130)' },
+		{ id: 'rosewood', label: 'Rosewood', swatch: 'oklch(0.46 0.16 0)' }
+	];
+
+	function isActive(href: string): boolean {
+		const path = $page.url.pathname;
+		if (href === '/students') return path === '/students' || path.startsWith('/students/');
+		return path === href || path.startsWith(href + '/');
 	}
 
 	function handleLogout() {
 		authStore.logout();
 	}
 
-	function toggleTheme() {
-		// DaisyUI theme switching with localStorage persistence
-		const themes = ['light', 'dark'];
-		const currentIndex = themes.indexOf(currentTheme);
-		const nextIndex = (currentIndex + 1) % themes.length;
-		const newTheme = themes[nextIndex];
-		
-		setTheme(newTheme);
+	function setPalette(p: Palette) {
+		paletteStore.setPalette(p);
+		paletteOpen = false;
 	}
 
-	function setTheme(theme: string) {
-		currentTheme = theme;
-		document.documentElement.setAttribute('data-theme', theme);
-		// Store in localStorage
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem('theme', theme);
+	function handleSearch(e: KeyboardEvent) {
+		if (e.key === 'Enter' && searchQuery.trim()) {
+			goto(`/students?q=${encodeURIComponent(searchQuery.trim())}`);
+			searchQuery = '';
 		}
 	}
 
-	function loadThemeFromStorage() {
-		if (typeof localStorage !== 'undefined') {
-			const savedTheme = localStorage.getItem('theme');
-			if (savedTheme) {
-				setTheme(savedTheme);
-			} else {
-				// Set default theme if no saved theme
-				setTheme('light');
-			}
-		} else {
-			// Fallback for SSR
-			setTheme('light');
-		}
+	function handleClickOutside(e: MouseEvent) {
+		const target = e.target as HTMLElement;
+		if (!target.closest('.palette-dd') && !target.closest('.palette-trigger')) paletteOpen = false;
+		if (!target.closest('.user-dd') && !target.closest('.sb-user')) userMenuOpen = false;
 	}
 
-	// Load theme when component mounts
 	onMount(() => {
-		loadThemeFromStorage();
+		paletteStore.init();
+		recentsStore.init();
+		favoritesStore.init();
+		sidebarCollapsedStore.init();
+		document.addEventListener('click', handleClickOutside);
+		return () => document.removeEventListener('click', handleClickOutside);
 	});
+
+	const NAV = [
+		{ href: '/students', label: 'Students', icon: Users },
+		{ href: '/courses', label: 'Courses', icon: BookOpen },
+		{ href: '/dues', label: 'Dues', icon: IndianRupee },
+		{ href: '/payments', label: 'Payments', icon: Banknote }
+	];
+
+	function pageCrumbs(path: string) {
+		const parts = path.split('/').filter(Boolean);
+		const crumbs: { label: string; href: string }[] = [];
+		let acc = '';
+		for (const p of parts) {
+			acc += '/' + p;
+			const label = p
+				.replace(/-/g, ' ')
+				.replace(/\b\w/g, (c) => c.toUpperCase());
+			crumbs.push({ label, href: acc });
+		}
+		return crumbs;
+	}
+
+	let crumbs = $derived(pageCrumbs($page.url.pathname));
+	let userInitial = $derived(($authStore.user?.email || 'U').charAt(0).toUpperCase());
 </script>
 
-<!-- DaisyUI Navigation -->
-<div class="navbar bg-base-100 shadow-lg sticky top-0 z-50">
-	<div class="navbar-start">
-		<div class="dropdown md:hidden">
-			<div tabindex="0" role="button" class="btn btn-ghost btn-circle">
-				<Menu class="w-5 h-5" />
+<svelte:head>
+	<title>Revathi Arts and Music School</title>
+</svelte:head>
+
+<div class="app-shell" data-collapsed={$sidebarCollapsedStore}>
+	<aside class="sidebar">
+		<div class="sb-brand">
+			<div class="sb-mark">R</div>
+			{#if !$sidebarCollapsedStore}
+				<div>
+					<div class="sb-name">Revathi <em>Arts</em></div>
+					<div class="sb-tag">Music School</div>
+				</div>
+				<button class="sb-collapse" onclick={() => sidebarCollapsedStore.toggle()} aria-label="Collapse sidebar">
+					<PanelLeftClose size={16} strokeWidth={1.6} />
+				</button>
+			{/if}
+		</div>
+
+		{#if $sidebarCollapsedStore}
+			<div style="display:flex; justify-content:center; padding: 8px;">
+				<button class="sb-collapse" onclick={() => sidebarCollapsedStore.toggle()} aria-label="Expand sidebar">
+					<PanelLeftOpen size={16} strokeWidth={1.6} />
+				</button>
 			</div>
-			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
-				<li>
-					<a href="/students" class="flex items-center gap-2">
-						<Users class="w-4 h-4" />
-						<span>Students</span>
+		{/if}
+
+		<nav class="sb-section" style="display:flex; flex-direction:column; gap:2px;">
+			{#if !$sidebarCollapsedStore}<div class="sb-label">Workspace</div>{/if}
+			{#each NAV as item}
+				<a class="sb-link" class:active={isActive(item.href)} href={item.href}>
+					<item.icon size={16} strokeWidth={1.6} />
+					<span>{item.label}</span>
+				</a>
+			{/each}
+		</nav>
+
+		{#if !$sidebarCollapsedStore && $favoritesStore.length > 0}
+			<div class="sb-divider"></div>
+			<div class="sb-section" style="display:flex; flex-direction:column; gap:2px;">
+				<div class="sb-label">
+					<span style="display:inline-flex; align-items:center; gap:6px;">
+						<Star size={10} strokeWidth={1.8} /> Favorites
+					</span>
+				</div>
+				{#each $favoritesStore.slice(0, 5) as fav}
+					<a class="sb-recent-item" href="/students/{fav.id}">
+						<span class="sb-recent-avatar">{(fav.name || '?').charAt(0).toUpperCase()}</span>
+						<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{fav.name}</span>
 					</a>
-				</li>
-				<li>
-					<a href="/courses" class="flex items-center gap-2">
-						<BookOpen class="w-4 h-4" />
-						<span>Courses</span>
+				{/each}
+			</div>
+		{/if}
+
+		{#if !$sidebarCollapsedStore && $recentsStore.length > 0}
+			<div class="sb-divider"></div>
+			<div class="sb-section" style="display:flex; flex-direction:column; gap:2px;">
+				<div class="sb-label">
+					<span style="display:inline-flex; align-items:center; gap:6px;">
+						<History size={10} strokeWidth={1.8} /> Recent
+					</span>
+				</div>
+				{#each $recentsStore as rec}
+					<a class="sb-recent-item" href="/students/{rec.id}">
+						<span class="sb-recent-avatar">{(rec.name || '?').charAt(0).toUpperCase()}</span>
+						<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{rec.name}</span>
+						{#if rec.admissionNo}<span class="sb-recent-meta">{rec.admissionNo}</span>{/if}
 					</a>
-				</li>
-				<li>
-					<a href="/dues" class="flex items-center gap-2">
-						<CreditCard class="w-4 h-4" />
-						<span>Dues</span>
-					</a>
-				</li>
-				<li>
-					<a href="/payments" class="flex items-center gap-2">
-						<Banknote class="w-4 h-4" />
-						<span>Payments</span>
-					</a>
-				</li>
-			</ul>
-		</div>
-		<a href="/students" class="btn btn-ghost">
-			<!-- Apply filter to make logo white in dark theme -->
-			<img
-				src="/company-logo-minimal.svg"
-				alt="Revathi Arts and Music School"
-				class="h-8"
-				style="filter: {currentTheme === 'dark' ? 'brightness(0) invert(1)' : 'none'}"
-			/>
-		</a>
-	</div>
-	
-	<div class="navbar-center hidden md:flex">
-			<ul class="menu menu-horizontal px-1">
-				<li>
-					<a href="/students" class="flex items-center gap-2">
-						<Users class="w-4 h-4" />
-						<span>Students</span>
-					</a>
-				</li>
-				<li>
-					<a href="/courses" class="flex items-center gap-2">
-						<BookOpen class="w-4 h-4" />
-						<span>Courses</span>
-					</a>
-				</li>
-				<li>
-					<a href="/dues" class="flex items-center gap-2">
-						<CreditCard class="w-4 h-4" />
-						<span>Dues</span>
-					</a>
-				</li>
-				<li>
-					<a href="/payments" class="flex items-center gap-2">
-						<Banknote class="w-4 h-4" />
-						<span>Payments</span>
-					</a>
-				</li>
-			</ul>
-	</div>
-	
-	<div class="navbar-end">
-		<div class="flex items-center space-x-2">
-			<span class="text-xs text-base-content/70 hidden sm:block capitalize">{currentTheme}</span>
-			<button class="btn btn-ghost btn-circle" onclick={toggleTheme} title="Change theme (current: {currentTheme})">
-				{#if currentTheme === 'dark'}
-					<Moon class="w-5 h-5" />
-				{:else}
-					<Sun class="w-5 h-5" />
+				{/each}
+			</div>
+		{/if}
+
+		<div class="sb-foot">
+			<div style="position: relative;">
+				<button class="sb-user" onclick={() => (userMenuOpen = !userMenuOpen)}>
+					<span class="sb-avatar">{userInitial}</span>
+					{#if !$sidebarCollapsedStore}
+						<span class="sb-user-info">
+							<span class="sb-user-name">Owner</span>
+							<span class="sb-user-email">{$authStore.user?.email || 'user@school'}</span>
+						</span>
+						<ChevronDown size={14} strokeWidth={1.6} style="color: var(--fg-muted);" />
+					{/if}
+				</button>
+				{#if userMenuOpen}
+					<div
+						class="user-dd"
+						style="position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-pop); padding: 4px; z-index: 50;"
+					>
+						<button class="mselect-opt" onclick={handleLogout}>
+							<LogOut size={14} strokeWidth={1.6} />
+							<span>Log out</span>
+						</button>
+					</div>
 				{/if}
-			</button>
+			</div>
 		</div>
-		<div class="dropdown dropdown-end">
-			<div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
-				<div class="w-10 rounded-full">
-					<User class="w-5 h-5 m-auto mt-2" />
+	</aside>
+
+	<div class="main">
+		<header class="topbar">
+			<div class="crumbs">
+				<a href="/students" style="display:inline-flex; align-items:center; gap:6px;">Home</a>
+				{#each crumbs as c, i}
+					<span class="sep">/</span>
+					{#if i === crumbs.length - 1}
+						<span class="last">{c.label}</span>
+					{:else}
+						<a href={c.href}>{c.label}</a>
+					{/if}
+				{/each}
+			</div>
+
+			<div class="topbar-actions">
+				<div class="search-box" style="width: 280px;">
+					<Search size={14} strokeWidth={1.6} />
+					<input
+						type="text"
+						placeholder="Search students…"
+						bind:value={searchQuery}
+						onkeydown={handleSearch}
+					/>
+					<span class="kbd">↵</span>
+				</div>
+
+				<div style="position: relative;">
+					<button class="btn-s btn-secondary-s btn-icon-s palette-trigger" onclick={() => (paletteOpen = !paletteOpen)} aria-label="Change palette">
+						<PaletteIcon size={14} strokeWidth={1.6} />
+					</button>
+					{#if paletteOpen}
+						<div
+							class="palette-dd"
+							style="position: absolute; right: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-pop); padding: 4px; z-index: 50; min-width: 180px;"
+						>
+							{#each PALETTES as p}
+								<button
+									class="mselect-opt"
+									class:is-sel={$paletteStore === p.id}
+									onclick={() => setPalette(p.id)}
+								>
+									<span class="mselect-swatch" style="background: {p.swatch};"></span>
+									<span>{p.label}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			</div>
-			<ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
-				<li>
-					<div class="flex items-center gap-2 pointer-events-none">
-						<User class="w-4 h-4" />
-						<span class="text-xs truncate">{$authStore.user?.email || 'User'}</span>
-					</div>
-				</li>
-				<div class="divider my-0"></div>
-				<li><a href="/profile">Profile</a></li>
-				<li><a href="/settings">Settings</a></li>
-				<li>
-					<button type="button" onclick={handleLogout} class="flex items-center gap-2">
-						<LogOut class="w-4 h-4" />
-						Logout
-					</button>
-				</li>
-			</ul>
+		</header>
+
+		<div style="flex: 1; min-width: 0;">
+			{@render children?.()}
 		</div>
 	</div>
 </div>
-
-<!-- Main Content -->
-<main class="min-h-screen bg-base-200">
-	{@render children?.()}
-</main>

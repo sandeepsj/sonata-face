@@ -2,16 +2,17 @@
 	import { onMount } from 'svelte';
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
 	import { StudentSessionService, type Student, type StudentSession } from '$lib';
-	import { 
-		Calendar, 
-		UserPlus, 
-		LogIn, 
-		LogOut, 
-		IndianRupee, 
+	import {
+		Calendar,
+		UserPlus,
+		LogIn,
+		LogOut,
+		IndianRupee,
 		Trash2,
 		Clock,
-		AlertCircle 
+		AlertCircle
 	} from 'lucide-svelte';
+	import Badge from '$lib/components/Badge.svelte';
 
 	export let student: Student;
 
@@ -22,7 +23,8 @@
 		title: string;
 		description: string;
 		icon: any;
-		iconClass: string;
+		nodeColor: string;
+		nodeBg: string;
 		data?: any;
 	}
 
@@ -34,14 +36,12 @@
 	$: studentId = currentStudent?.admissionNo;
 	$: payments = $currentStudentStore.payments.data;
 	$: dues = $currentStudentStore.dues.data;
-
-	// Build timeline events
 	$: timelineEvents = buildTimelineEvents(currentStudent, sessions, payments);
 
+	$: groupedByMonth = groupByMonth(timelineEvents);
+
 	onMount(async () => {
-		if (studentId) {
-			await loadTimelineData();
-		}
+		if (studentId) await loadTimelineData();
 	});
 
 	async function loadTimelineData() {
@@ -50,21 +50,16 @@
 			loading = false;
 			return;
 		}
-
 		loading = true;
 		error = null;
-
 		try {
-			// Load sessions, payments, and dues
 			const [sessionsData] = await Promise.all([
 				StudentSessionService.getAllSessionsByStudent(studentId),
 				currentStudentStore.fetchPayments(studentId, true),
 				currentStudentStore.fetchDues(studentId, true)
 			]);
-
 			sessions = sessionsData;
 		} catch (err) {
-			console.error('Failed to load timeline data:', err);
 			error = err instanceof Error ? err.message : 'Failed to load timeline data';
 		} finally {
 			loading = false;
@@ -77,23 +72,21 @@
 		payments: any[]
 	): TimelineEvent[] {
 		const events: TimelineEvent[] = [];
-
 		if (!student) return events;
 
-		// Add admission event
 		if (student.admissionDate) {
 			events.push({
 				id: `admission-${student.admissionNo}`,
 				date: student.admissionDate,
 				type: 'admission',
-				title: 'Student Admitted',
+				title: 'Student admitted',
 				description: `${student.studentName} was admitted to the school`,
 				icon: UserPlus,
-				iconClass: 'bg-success text-success-content'
+				nodeColor: 'var(--ok)',
+				nodeBg: 'var(--ok-soft)'
 			});
 		}
 
-		// Add session join events
 		sessions.forEach((session) => {
 			events.push({
 				id: `session-join-${session.id}`,
@@ -102,11 +95,10 @@
 				title: `Joined ${session.course.name}`,
 				description: `Started learning ${session.course.name}`,
 				icon: LogIn,
-				iconClass: 'bg-primary text-primary-content',
+				nodeColor: 'var(--accent)',
+				nodeBg: 'var(--accent-soft)',
 				data: session
 			});
-
-			// Add session disjoin events
 			if (session.dateOfDisjoining) {
 				events.push({
 					id: `session-disjoin-${session.id}`,
@@ -115,277 +107,177 @@
 					title: `Left ${session.course.name}`,
 					description: `Completed or discontinued ${session.course.name}`,
 					icon: LogOut,
-					iconClass: 'bg-warning text-warning-content',
+					nodeColor: 'var(--warn)',
+					nodeBg: 'var(--warn-soft)',
 					data: session
 				});
 			}
 		});
 
-		// Add payment events
 		payments.forEach((payment) => {
-			// Only add if payment was originally active (created)
-			const wasCreated = payment.createdAt;
-			if (wasCreated) {
-				const paymentDetails = getPaymentDetails(payment);
-				const termInfo = paymentDetails.termYear && paymentDetails.termNumber 
-					? ` - Year ${paymentDetails.termYear}, Term ${paymentDetails.termNumber}`
-					: '';
-				
+			if (payment.createdAt) {
+				const pd = getPaymentDetails(payment);
+				const termInfo = pd.termYear && pd.termNumber ? ` · Y${pd.termYear} T${pd.termNumber}` : '';
 				events.push({
 					id: `payment-${payment.id}`,
 					date: payment.date,
 					type: 'payment',
-					title: `Payment: ${payment.label || 'Fee Payment'}`,
-					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${paymentDetails.courseName || 'fees'}${termInfo}`,
+					title: `Payment: ${payment.label || 'Fee payment'}`,
+					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${pd.courseName || 'fees'}${termInfo}`,
 					icon: IndianRupee,
-					iconClass: payment.isActive ? 'bg-info text-info-content' : 'bg-base-300 text-base-content opacity-50',
+					nodeColor: payment.isActive ? 'var(--info)' : 'var(--fg-muted)',
+					nodeBg: payment.isActive ? 'var(--info-soft)' : 'var(--surface-2)',
 					data: payment
 				});
-
-				// Add deactivation event if payment was deactivated
 				if (!payment.isActive && payment.updatedAt && payment.updatedAt !== payment.createdAt) {
 					events.push({
 						id: `payment-deactivation-${payment.id}`,
 						date: payment.updatedAt,
 						type: 'payment-deactivation',
-						title: `Payment Deactivated: ${payment.label || 'Fee Payment'}`,
+						title: `Payment deactivated: ${payment.label || 'Fee payment'}`,
 						description: `Payment of ₹${payment.amountPaid.toLocaleString('en-IN')} was deactivated`,
 						icon: Trash2,
-						iconClass: 'bg-error text-error-content',
+						nodeColor: 'var(--danger)',
+						nodeBg: 'var(--danger-soft)',
 						data: payment
 					});
 				}
 			}
 		});
 
-		// Sort events by date (newest first)
 		return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 	}
 
-	function getPaymentDetails(payment: any) {
-		// Try to find matching due for term/year/course info
-		if (payment.feeStructure) {
-			const matchingDue = dues.find(due => 
-				due.feeStructureId === payment.feeStructure?.id
-			);
-			
-			if (matchingDue) {
-				return {
-					termYear: matchingDue.termYear,
-					termNumber: matchingDue.termNumber,
-					courseName: matchingDue.courseName || payment.courseName
+	function groupByMonth(events: TimelineEvent[]): { month: string; year: number; events: TimelineEvent[] }[] {
+		const groups: Record<string, { month: string; year: number; events: TimelineEvent[] }> = {};
+		for (const e of events) {
+			const d = new Date(e.date);
+			const key = `${d.getFullYear()}-${d.getMonth()}`;
+			if (!groups[key]) {
+				groups[key] = {
+					month: d.toLocaleDateString('en-IN', { month: 'long' }),
+					year: d.getFullYear(),
+					events: []
 				};
 			}
+			groups[key].events.push(e);
 		}
-
-		// Fallback to payment's own data
-		return {
-			termYear: null,
-			termNumber: null,
-			courseName: payment.courseName
-		};
+		return Object.values(groups);
 	}
 
-	function formatDate(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric' 
-		});
+	function getPaymentDetails(p: any) {
+		if (p.feeStructure) {
+			const m = dues.find((d) => d.feeStructureId === p.feeStructure?.id);
+			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || p.courseName };
+		}
+		return { termYear: null, termNumber: null, courseName: p.courseName };
 	}
 
-	function formatDateTime(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleString('en-IN', { 
-			day: '2-digit', 
-			month: 'short', 
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
+	function getDay(d: string): string {
+		try { return String(new Date(d).getDate()).padStart(2, '0'); } catch { return ''; }
 	}
-
-	function getRelativeTime(dateStr: string): string {
-		const date = new Date(dateStr);
-		const now = new Date();
-		const diffMs = now.getTime() - date.getTime();
-		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-		if (diffDays === 0) return 'Today';
-		if (diffDays === 1) return 'Yesterday';
-		if (diffDays < 7) return `${diffDays} days ago`;
-		if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-		if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-		return `${Math.floor(diffDays / 365)} years ago`;
+	function getMonAbbr(d: string): string {
+		try { return new Date(d).toLocaleDateString('en-IN', { month: 'short' }).toUpperCase(); } catch { return ''; }
+	}
+	function formatTime(d: string): string {
+		try { return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 	}
 </script>
 
-<svelte:head>
-	<title>Timeline - {currentStudent?.studentName || 'Student'}</title>
-</svelte:head>
-
-<div class="container mx-auto p-6 max-w-5xl">
-	<!-- Header -->
-	<div class="mb-6">
-		<h1 class="text-3xl font-bold mb-2">Student Timeline</h1>
-		<p class="text-base-content/70">
-			Complete chronological history of {currentStudent?.studentName || 'student'}'s journey
-		</p>
+<div class="section-row">
+	<div>
+		<h2 class="section-title-s">Timeline</h2>
+		<div style="color: var(--fg-muted); font-size: 13px;">
+			Chronological history of {currentStudent?.studentName || 'student'}'s journey.
+		</div>
 	</div>
+</div>
 
-	<!-- Loading State -->
-	{#if loading}
-		<div class="flex justify-center items-center py-12">
-			<span class="loading loading-spinner loading-lg"></span>
-		</div>
-	{:else if error}
-		<!-- Error State -->
-		<div class="alert alert-error">
-			<AlertCircle class="h-5 w-5" />
-			<span>{error}</span>
-		</div>
-	{:else if timelineEvents.length === 0}
-		<!-- Empty State -->
-		<div class="card bg-base-100 shadow-xl">
-			<div class="card-body items-center text-center py-12">
-				<Clock class="w-16 h-16 text-base-content/30 mb-4" />
-				<h3 class="text-xl font-semibold text-base-content/70">No Timeline Events</h3>
-				<p class="text-base-content/50">
-					No events have been recorded for this student yet.
-				</p>
+{#if loading}
+	<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);"><span class="spinner spinner-lg"></span></div>
+{:else if error}
+	<div class="callout danger">
+		<AlertCircle size={18} strokeWidth={1.6} />
+		<div class="callout-body">{error}</div>
+	</div>
+{:else if timelineEvents.length === 0}
+	<div class="card-s">
+		<div class="card-body-s">
+			<div class="empty-s">
+				<div class="glyph">∅</div>
+				<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No events yet</div>
+				<div style="margin-top: 4px;">No events have been recorded for this student.</div>
 			</div>
 		</div>
-	{:else}
-		<!-- Timeline -->
-		<div class="relative">
-			<!-- Timeline vertical line -->
-			<div class="absolute left-8 top-0 bottom-0 w-0.5 bg-base-300"></div>
-
-			<!-- Timeline Events -->
-			<div class="space-y-6">
-				{#each timelineEvents as event (event.id)}
-					<div class="relative pl-20">
-						<!-- Icon circle -->
-						<div class="absolute left-0 w-16 h-16 rounded-full {event.iconClass} flex items-center justify-center shadow-lg z-10">
-							<svelte:component this={event.icon} class="w-8 h-8" />
-						</div>
-
-						<!-- Event card -->
-						<div class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow">
-							<div class="card-body p-4">
-								<div class="flex justify-between items-start gap-4">
-									<div class="flex-1">
-										<h3 class="font-bold text-lg mb-1">{event.title}</h3>
-										<p class="text-sm text-base-content/70 mb-2">{event.description}</p>
-										
-										<div class="flex items-center gap-4 text-xs text-base-content/60">
-											<div class="flex items-center gap-1">
-												<Calendar class="w-3 h-3" />
-												<span>{formatDate(event.date)}</span>
-											</div>
-											<div class="flex items-center gap-1">
-												<Clock class="w-3 h-3" />
-												<span>{getRelativeTime(event.date)}</span>
-											</div>
-										</div>
-									</div>
-
-									<!-- Event type badge -->
-									<div class="flex flex-col items-end gap-2">
-										{#if event.type === 'admission'}
-											<span class="badge badge-success badge-sm">Admission</span>
-										{:else if event.type === 'session-join'}
-											<span class="badge badge-primary badge-sm">Enrolled</span>
-										{:else if event.type === 'session-disjoin'}
-											<span class="badge badge-warning badge-sm">Completed</span>
-										{:else if event.type === 'payment'}
-											<span class="badge badge-info badge-sm">
-												{event.data?.paymentType === 'REGULAR' ? 'Regular Payment' : 
-												 event.data?.paymentType === 'ADDITIONAL' ? 'Additional Payment' : 
-												 'Other Payment'}
-											</span>
-											{#if !event.data?.isActive}
-												<span class="badge badge-ghost badge-sm">Deactivated</span>
-											{/if}
-										{:else if event.type === 'payment-deactivation'}
-											<span class="badge badge-error badge-sm">Deactivated</span>
-										{/if}
-
-										<span class="text-xs text-base-content/50">
-											{formatDateTime(event.date)}
-										</span>
-									</div>
+	</div>
+{:else}
+	<div class="grid-2" style="grid-template-columns: 1fr 280px; gap: 18px; align-items: start;">
+		<div class="card-s">
+			<div class="tl">
+				{#each groupedByMonth as group}
+					<div class="tl-month">
+						<span class="tl-month-tick"></span>
+						<span>{group.month} {group.year}</span>
+						<span class="tl-month-count">{group.events.length}</span>
+					</div>
+					{#each group.events as event (event.id)}
+						<div class="tl-row">
+							<div class="tl-date">
+								<div class="tl-date-day">{getDay(event.date)}</div>
+								<div class="tl-date-mon">{getMonAbbr(event.date)}</div>
+							</div>
+							<div class="tl-rail">
+								<span class="tl-node" style="background: {event.nodeBg}; color: {event.nodeColor}; box-shadow: 0 0 0 3px var(--bg-elev);">
+									<svelte:component this={event.icon} size={11} strokeWidth={1.8} />
+								</span>
+							</div>
+							<div class="tl-card-s">
+								<div class="tl-card-head">
+									<span class="tl-pill" style="background: {event.nodeBg}; color: {event.nodeColor}; border-color: {event.nodeColor};">
+										{#if event.type === 'admission'}Admission
+										{:else if event.type === 'session-join'}Enrolled
+										{:else if event.type === 'session-disjoin'}Completed
+										{:else if event.type === 'payment'}{event.data?.paymentType === 'ADDITIONAL' ? 'Additional' : 'Payment'}
+										{:else}Deactivated{/if}
+									</span>
+									<span class="tl-time">{formatTime(event.date)}</span>
 								</div>
-
-								<!-- Additional payment details -->
-								{#if event.type === 'payment' && event.data}
-									<div class="mt-3 pt-3 border-t border-base-300">
-										<div class="grid grid-cols-2 gap-2 text-xs">
-											<div>
-												<span class="text-base-content/60">Amount Paid:</span>
-												<span class="font-bold ml-2">₹{event.data.amountPaid.toLocaleString('en-IN')}</span>
-											</div>
-											{#if event.data.discountAmount > 0}
-												<div>
-													<span class="text-base-content/60">Discount:</span>
-													<span class="font-bold ml-2 text-success">₹{event.data.discountAmount.toLocaleString('en-IN')}</span>
-												</div>
-											{/if}
-										</div>
-									</div>
-								{/if}
-
-								<!-- Session duration -->
-								{#if (event.type === 'session-join' || event.type === 'session-disjoin') && event.data}
-									<div class="mt-3 pt-3 border-t border-base-300">
-										<div class="text-xs">
-											<span class="text-base-content/60">Course:</span>
-											<span class="font-medium ml-2">{event.data.course.name}</span>
-										</div>
-										{#if event.type === 'session-disjoin'}
-											<div class="text-xs mt-1">
-												<span class="text-base-content/60">Duration:</span>
-												<span class="font-medium ml-2">
-													{formatDate(event.data.dateOfJoining)} - {formatDate(event.data.dateOfDisjoining)}
-												</span>
-											</div>
-										{/if}
-									</div>
-								{/if}
+								<div class="tl-title-s">{event.title}</div>
+								<div class="tl-sub-s">{event.description}</div>
 							</div>
 						</div>
-					</div>
+					{/each}
 				{/each}
 			</div>
 		</div>
 
-		<!-- Summary Stats -->
-		<div class="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body p-4 text-center">
-					<div class="text-2xl font-bold">{timelineEvents.filter(e => e.type === 'session-join').length}</div>
-					<div class="text-xs text-base-content/70">Courses Enrolled</div>
-				</div>
+		<div class="card-s" style="position: sticky; top: 80px;">
+			<div class="card-header">
+				<h3 class="card-title-s">At a <em style="color: var(--accent); font-style: italic;">glance</em></h3>
 			</div>
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body p-4 text-center">
-					<div class="text-2xl font-bold">{timelineEvents.filter(e => e.type === 'session-disjoin').length}</div>
-					<div class="text-xs text-base-content/70">Courses Completed</div>
-				</div>
-			</div>
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body p-4 text-center">
-					<div class="text-2xl font-bold">{timelineEvents.filter(e => e.type === 'payment' && e.data?.isActive).length}</div>
-					<div class="text-xs text-base-content/70">Active Payments</div>
-				</div>
-			</div>
-			<div class="card bg-base-100 shadow-sm">
-				<div class="card-body p-4 text-center">
-					<div class="text-2xl font-bold">{timelineEvents.filter(e => e.type === 'payment-deactivation').length}</div>
-					<div class="text-xs text-base-content/70">Deactivations</div>
+			<div class="card-body-s">
+				<div style="display: flex; flex-direction: column; gap: 12px;">
+					<div>
+						<div class="kpi-label">Courses enrolled</div>
+						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'session-join').length}</div>
+					</div>
+					<div class="divider-s" style="margin: 0;"></div>
+					<div>
+						<div class="kpi-label">Courses completed</div>
+						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'session-disjoin').length}</div>
+					</div>
+					<div class="divider-s" style="margin: 0;"></div>
+					<div>
+						<div class="kpi-label">Active payments</div>
+						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'payment' && e.data?.isActive).length}</div>
+					</div>
+					<div class="divider-s" style="margin: 0;"></div>
+					<div>
+						<div class="kpi-label">Deactivations</div>
+						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'payment-deactivation').length}</div>
+					</div>
 				</div>
 			</div>
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}
