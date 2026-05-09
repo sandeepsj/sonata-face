@@ -7,7 +7,7 @@
 		type FeeStructure,
 		type StudentSession
 	} from '$lib';
-	import { Users, Pencil, MoreHorizontal, Plus, TrendingUp, BookOpen } from 'lucide-svelte';
+	import { Users, Pencil, MoreHorizontal, Plus, TrendingUp, BookOpen, Printer } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Select from '$lib/components/Select.svelte';
 
@@ -162,6 +162,14 @@
 		} catch {
 			return d;
 		}
+	}
+
+	function todayStr(): string {
+		return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+	}
+
+	function printStudents() {
+		window.print();
 	}
 
 	function initials(name: string): string {
@@ -371,6 +379,16 @@
 						</div>
 					{:else if activeTab === 'students'}
 						<div class="course-card">
+							<div class="course-card-head" style="display: flex; align-items: center; justify-content: space-between;">
+								<span class="course-card-title">Enrolled students · {selectedYear}</span>
+								<button
+									class="btn-s btn-secondary-s btn-sm-s"
+									onclick={printStudents}
+									disabled={detailSessions.length === 0}
+								>
+									<Printer size={14} strokeWidth={1.6} /> Print
+								</button>
+							</div>
 							{#if loadingSessions}
 								<div style="display: flex; justify-content: center; padding: 30px 0;"><span class="spinner spinner-lg"></span></div>
 							{:else if detailSessions.length === 0}
@@ -448,6 +466,50 @@
 					<div class="callout info"><div class="callout-body">Select a course to view details.</div></div>
 				{/if}
 			</section>
+		</div>
+	{/if}
+
+	<!-- Print-only block: students roster for the selected course -->
+	{#if selectedGroup && activeTab === 'students' && detailSessions.length > 0}
+		<div class="course-print">
+			<div class="print-header">
+				<div>
+					<div class="print-brand">Revathi <em>Arts</em> &amp; Music School</div>
+					<div class="print-title">{selectedGroup.course.name} · students roster</div>
+					<div class="print-meta">
+						Year {selectedYear} · {selectedGroup.termsPerYear} terms · {activeStudentCount} active of {detailSessions.length} · Generated {todayStr()}
+					</div>
+				</div>
+				<div class="print-totals">
+					<div><span class="print-totals-label">Term fee</span> ₹{(selectedGroup.structures[0]?.amount ?? 0).toLocaleString('en-IN')}</div>
+					<div><span class="print-totals-label">Annual</span> ₹{selectedGroup.yearlyFee.toLocaleString('en-IN')}</div>
+				</div>
+			</div>
+
+			<table class="print-tbl">
+				<thead>
+					<tr>
+						<th style="width: 40px;">#</th>
+						<th>Admission #</th>
+						<th>Name</th>
+						<th>Joined</th>
+						<th>Left</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each detailSessions as s, i}
+						<tr>
+							<td>{i + 1}</td>
+							<td>{s.student.admissionNo}</td>
+							<td>{s.student.studentName}</td>
+							<td>{formatDate(s.dateOfJoining)}</td>
+							<td>{isSessionActive(s) ? '—' : formatDate(s.dateOfDisjoining)}</td>
+							<td>{isSessionActive(s) ? 'Active' : 'Inactive'}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
 	{/if}
 </div>
@@ -717,5 +779,61 @@
 		font-family: var(--font-serif);
 		font-size: 16px;
 		font-weight: 500;
+	}
+
+	/* ---------- Print ---------- */
+	.course-print { display: none; }
+
+	@media print {
+		:global(body) :global(*) { visibility: hidden !important; }
+		.course-print, .course-print * { visibility: visible !important; }
+		.course-print {
+			display: block;
+			position: absolute;
+			inset: 0;
+			padding: 18mm 14mm;
+			background: white;
+			color: #1a1a1a;
+			font-family: var(--font-sans);
+		}
+		.print-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: flex-start;
+			gap: 24px;
+			border-bottom: 1px solid #d0d0d0;
+			padding-bottom: 10px;
+			margin-bottom: 16px;
+		}
+		.print-brand { font-family: var(--font-serif); font-size: 18px; }
+		.print-brand em { font-style: italic; color: #444; }
+		.print-title { font-family: var(--font-serif); font-size: 22px; font-weight: 500; margin-top: 4px; }
+		.print-meta { font-size: 11px; color: #555; margin-top: 4px; }
+		.print-totals { font-size: 12px; text-align: right; line-height: 1.6; }
+		.print-totals-label {
+			display: inline-block;
+			min-width: 70px;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: #777;
+			font-size: 10px;
+			margin-right: 6px;
+		}
+		.print-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.print-tbl th, .print-tbl td {
+			padding: 5px 7px;
+			border-bottom: 1px solid #ececec;
+			text-align: left;
+			vertical-align: top;
+		}
+		.print-tbl th {
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			font-size: 9.5px;
+			color: #555;
+			font-weight: 500;
+			background: #f6f6f6;
+		}
+		@page { margin: 12mm; }
 	}
 </style>

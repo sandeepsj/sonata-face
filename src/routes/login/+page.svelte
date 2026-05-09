@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-svelte';
 	import { paletteStore } from '$lib/stores/paletteStore';
+	import Wordmark from '$lib/components/Wordmark.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -36,15 +37,11 @@
 	</div>
 
 	<div class="auth-form">
-		<div class="auth-brand">
-			<div class="sb-mark">R</div>
-			<div>
-				<div class="sb-name">Revathi <em>Arts</em></div>
-				<div class="sb-tag">Music School</div>
-			</div>
+		<div style="display: flex; justify-content: center; margin-bottom: 28px;">
+			<Wordmark size="md" />
 		</div>
 
-		<h1 style="font-family: var(--font-serif); font-weight: 500; font-size: 28px; letter-spacing: -0.02em; margin: 0 0 6px;">
+		<h1 style="font-family: var(--font-serif); font-weight: 500; font-size: 28px; letter-spacing: -0.02em; margin: 0 0 6px; text-align: center;">
 			Welcome <em style="color: var(--accent); font-style: italic;">back</em>
 		</h1>
 		<p style="color: var(--fg-muted); margin: 0 0 28px; font-size: 13.5px;">

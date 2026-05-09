@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" width="800" height="360">
+  <defs>
+    
+  </defs>
+  <rect width="800" height="360" fill="none"></rect>
+  <text class="top" x="400" y="80" text-anchor="middle">A SCHOOL OF MUSIC &amp; DANCE</text>
+  <text class="name" x="400" y="210" text-anchor="middle">Revathi <tspan class="ital">Arts</tspan></text>
+  <g transform="translate(400 252)" stroke="#2f3da8" stroke-width="1" opacity="0.5">
+    <line x1="-66" y1="0" x2="-7" y2="0"></line>
+    <circle cx="0" cy="0" r="2.4" fill="#2f3da8" stroke="none"></circle>
+    <line x1="7" y1="0" x2="66" y2="0"></line>
+  </g>
+  <text class="sub" x="400" y="290" text-anchor="middle">Music &amp; Dance</text>
+</svg>
