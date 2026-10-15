@@ -8,8 +8,8 @@
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import { features } from '$lib/config/features';
 
-	// Listing sessions as of a date (`activeOn`) isn't on backend `self-service`: list every session instead
-	const byDate = features.legacyFeeModel;
+	// Listing sessions as of a date (`activeOn`) isn't on backend: list every session instead
+	const byDate = features.missingEndpoints;
 
 	let { course }: { course: Course } = $props();
 

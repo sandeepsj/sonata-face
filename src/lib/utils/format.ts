@@ -78,13 +78,6 @@ export function formatPeriod(start: string | null | undefined, end: string | nul
 	return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
-/** 'Term 2 of 4' style label for a period. */
-export function termLabel(termNumber: number, termsPerYear: number): string {
-	if (termsPerYear === 12) return 'Monthly';
-	if (termsPerYear === 1) return 'Yearly';
-	return `Term ${termNumber} of ${termsPerYear}`;
-}
-
 /** '3 months', '1 year, 2 months' */
 export function durationBetween(from: string, to: string | null | undefined): string {
 	const a = parseLocal(from);
@@ -110,20 +103,4 @@ export function dateInRange(d: string, start: string, end: string | null): boole
 export function money(v: number | null | undefined): string {
 	const n = Number(v ?? 0);
 	return `₹${(isNaN(n) ? 0 : n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-/** Calendar months covered by term `k` of a structure with `n` terms per year: 'Jan–Mar', 'Jul'. */
-export function termMonths(k: number, n: number): string {
-	if (n <= 0 || k <= 0 || k > n) return '—';
-	const per = 12 / n;
-	const a = MONTHS[(k - 1) * per];
-	const b = MONTHS[k * per - 1];
-	return a === b ? a : `${a}–${b}`;
-}
-
-/** 'Yearly', 'Half-yearly', 'Quarterly', 'Monthly', '3 terms', '6 terms' */
-export function cadenceLabel(termsPerYear: number): string {
-	return (
-		{ 1: 'Yearly', 2: 'Half-yearly', 4: 'Quarterly', 12: 'Monthly' }[termsPerYear] ?? `${termsPerYear} terms a year`
-	);
 }

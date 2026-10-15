@@ -189,7 +189,7 @@
 				<tr>
 					<th>Date</th>
 					<th>Subject/Course</th>
-					<th>Period</th>
+					<th>Description</th>
 					<th class="text-right">Fee</th>
 					<th class="text-right">Discount</th>
 					<th class="text-right">Total</th>
@@ -199,10 +199,8 @@
 				{#each payments as payment}
 					<tr>
 						<td>{formatDate(payment.date)}</td>
-						<td>{ payment.courseName || payment.label || 'Fee Payment'}</td>
-						<td>
-							{payment.period || '-'}
-						</td>
+						<td>{payment.courseName || 'Fee Payment'}</td>
+						<td>{payment.label || '-'}</td>
 						<td class="text-right" style="font-weight: 600;">
 							₹{formatCurrency(payment.amountPaid + (payment.discountAmount || 0))}
 						</td>

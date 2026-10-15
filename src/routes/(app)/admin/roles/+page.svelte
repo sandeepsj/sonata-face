@@ -13,6 +13,7 @@
 		'/api/student-sessions/**': 'Sessions (enrolment)',
 		'/api/courses/**': 'Courses',
 		'/api/fee-structures/**': 'Fee structures',
+		'/api/fee-timeline/**': 'Fee timeline',
 		'/api/payments/**': 'Payments',
 		'/api/discounts/**': 'Discounts',
 		'/api/dues/**': 'Dues',

@@ -1,5 +1,8 @@
 <script lang="ts">
-	// Record a course-fee (REGULAR) payment against one billing period.
+	// Record a course-fee (REGULAR) payment. It pays the student's oldest unpaid term of the course first, then
+	// the next; there is no period to pick and no upper limit (anything beyond what is due becomes credit).
+	// "Forgive a term" is a ₹0 REGULAR payment with a discount labelled with the reason. Like any course-fee
+	// payment it applies to the oldest unpaid term of the course, so the form defaults to that term's balance.
 	import { untrack } from 'svelte';
 	import { Trash2, Plus, Tag } from 'lucide-svelte';
 	import { api, currentStudentStore, errorMessage, fieldErrors, toast } from '$lib';
@@ -7,23 +10,22 @@
 	import { dateTimeLocalInput, formatPeriod, fromDateTimeLocalInput, money } from '$lib/utils/format';
 	import { discountProblem, filledDiscounts, totalDiscount } from '$lib/utils/discounts';
 	import Modal from '$lib/components/Modal.svelte';
-	import PeriodPicker from '$lib/components/PeriodPicker.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import FieldError from '$lib/components/FieldError.svelte';
 
 	interface Props {
 		open: boolean;
 		studentId: number;
-		/** Pre-select this due's course and period */
+		/** Pre-select this due's course and balance */
 		due?: Due | null;
+		/** Forgive the oldest unpaid term: ₹0 paid, a discount for its balance with the reason as its label */
+		forgive?: boolean;
 		onClose: () => void;
 	}
-	let { open, studentId, due = null, onClose }: Props = $props();
+	let { open, studentId, due = null, forgive = false, onClose }: Props = $props();
 
 	let courses: Course[] = $state([]);
 	let courseName = $state('');
-	let periodDate = $state('');
-	let pickedDue: Due | null = $state(null);
 	let amountPaid: number | '' = $state('');
 	let label = $state('');
 	let remarks = $state('');
@@ -34,9 +36,16 @@
 	let formError = $state('');
 	let errors: Record<string, string> = $state({});
 
-	// courses the student has (had) a session in, limited to active ones
+	// a REGULAR payment needs a session in its course
 	let sessionCourses = $derived([...new Set($currentStudentStore.sessions.data.map((s) => s.course.name))]);
 	let courseOptions = $derived(courses.filter((c) => sessionCourses.includes(c.name)));
+	/** What is still owed for the chosen course, oldest term first */
+	let owed = $derived(
+		$currentStudentStore.dues.data
+			.filter((d) => d.courseName === courseName && d.balance > 0)
+			.sort((a, b) => a.periodStart.localeCompare(b.periodStart))
+	);
+	let owedTotal = $derived(owed.reduce((s, d) => s + d.balance, 0));
 
 	let discountTotal = $derived(totalDiscount(filledDiscounts(discounts)));
 	let applied = $derived((Number(amountPaid) || 0) + discountTotal);
@@ -47,13 +56,17 @@
 
 	async function reset() {
 		courseName = due?.courseName ?? '';
-		periodDate = due?.periodStart ?? '';
-		pickedDue = due;
-		amountPaid = due ? due.balance : '';
-		label = '';
+		if (forgive) {
+			amountPaid = 0;
+			discounts = [{ discountAmount: 0, label: '' }];
+			label = '';
+		} else {
+			amountPaid = due ? due.balance : '';
+			discounts = [];
+			label = due ? `${due.courseName} fee` : '';
+		}
 		remarks = '';
 		date = dateTimeLocalInput();
-		discounts = [];
 		formError = '';
 		errors = {};
 		try {
@@ -62,24 +75,21 @@
 			courses = [];
 		}
 		if (!courseName && courseOptions.length === 1) courseName = courseOptions[0].name;
+		if (!label && courseName) label = `${courseName} fee`;
 	}
 
-	// default the amount and label when the period changes
-	let lastPeriod = '';
+	// keep the defaults in step with the course until the user types their own
+	let autoLabel = '';
 	$effect(() => {
-		const key = `${courseName}|${periodDate}`;
-		untrack(() => onPeriodChange(key));
+		const c = courseName;
+		const oldest = owed[0];
+		untrack(() => {
+			if (!c) return;
+			const next = forgive && oldest ? `${c} fee forgiven · ${formatPeriod(oldest.periodStart, oldest.periodEnd)}` : `${c} fee`;
+			if (!label || label === autoLabel) label = autoLabel = next;
+			if (forgive && discounts.length === 1 && oldest) discounts[0].discountAmount = oldest.balance;
+		});
 	});
-	function onPeriodChange(key: string) {
-		if (key === lastPeriod) return;
-		lastPeriod = key;
-		if (pickedDue && pickedDue.periodStart === periodDate) {
-			if (!due || due.periodStart !== periodDate || amountPaid === '') amountPaid = pickedDue.balance;
-			label = `${courseName} fee · ${formatPeriod(pickedDue.periodStart, pickedDue.periodEnd)}`;
-		} else if (periodDate) {
-			label = `${courseName} fee`;
-		}
-	}
 
 	function addDiscount() {
 		discounts = [...discounts, { discountAmount: 0, label: '' }];
@@ -91,14 +101,11 @@
 	function validate(): boolean {
 		errors = {};
 		if (!courseName) errors.courseName = 'Choose a course';
-		if (!periodDate) errors.periodDate = 'Choose the period this payment is for';
 		if (amountPaid === '' || Number(amountPaid) < 0) errors.amountPaid = 'Enter an amount of 0 or more';
-		else if (Number(amountPaid) === 0 && discountTotal === 0) errors.amountPaid = 'A zero payment needs a discount';
+		else if (Number(amountPaid) === 0 && discountTotal === 0) errors.amountPaid = 'A ₹0 payment needs a discount';
 		if (!label.trim()) errors.label = 'A label is required';
 		const dp = discountProblem(discounts);
-		if (dp) errors.discounts = dp;
-		if (pickedDue && applied > pickedDue.balance && !errors.amountPaid)
-			errors.amountPaid = `Amount plus discounts (${money(applied)}) is more than the balance of ${money(pickedDue.balance)}`;
+		if (dp) errors.discounts = forgive ? 'Say why the term is forgiven, and the amount' : dp;
 		return Object.keys(errors).length === 0;
 	}
 
@@ -112,14 +119,13 @@
 				studentId,
 				paymentType: 'REGULAR',
 				courseName,
-				periodDate,
 				amountPaid: Number(amountPaid),
 				label: label.trim(),
 				remarks: remarks.trim() || undefined,
 				date: fromDateTimeLocalInput(date),
 				discounts: ds.length ? ds : undefined
 			});
-			toast.ok('Payment recorded');
+			toast.ok(forgive ? 'Term forgiven. Dues updated.' : 'Payment recorded. Dues updated.');
 			onClose();
 			currentStudentStore.refreshAfterWrite(studentId);
 		} catch (e) {
@@ -131,7 +137,14 @@
 	}
 </script>
 
-<Modal {open} title="Record course fee" subtitle="A payment for one billing period of a course." size="lg" busy={saving} {onClose}>
+<Modal
+	{open}
+	title={forgive ? 'Forgive a term' : 'Record course fee'}
+	subtitle={forgive ? 'Records a ₹0 course-fee payment with a discount for the reason, e.g. the student left early. It applies to the oldest unpaid term of the course.' : 'Pays the oldest unpaid term of the course first, then the next. Anything beyond what is due becomes credit.'}
+	size="lg"
+	busy={saving}
+	{onClose}
+>
 	<form id="pay-form" onsubmit={(e) => { e.preventDefault(); submit(); }} style="display:flex; flex-direction:column; gap: 14px;">
 		<div class="field">
 			<label for="pay-course">Course *</label>
@@ -139,21 +152,25 @@
 				<option value="">Choose a course…</option>
 				{#each courseOptions as c}<option value={c.name}>{c.name}</option>{/each}
 			</select>
-			{#if courseOptions.length === 0}<span class="hint">The student has no sessions in an active course.</span>{/if}
+			{#if courseOptions.length === 0}<span class="hint">The student has no sessions, so there is no course fee to pay.</span>{/if}
+			{#if courseName}
+				<span class="hint">
+					{#if owed.length > 0 && forgive}
+						Forgives {formatPeriod(owed[0].periodStart, owed[0].periodEnd)} ({money(owed[0].balance)} owed), the oldest unpaid term.
+					{:else if owed.length > 0}
+						Owed: {money(owedTotal)} over {owed.length} term{owed.length === 1 ? '' : 's'}, oldest {formatPeriod(owed[0].periodStart, owed[0].periodEnd)}.
+					{:else}
+						Nothing is owed for {courseName} right now; this payment becomes credit for the next term.
+					{/if}
+				</span>
+			{/if}
 			<FieldError {errors} field="courseName" />
-		</div>
-
-		<div class="field">
-			<span class="kpi-label">Period *</span>
-			<PeriodPicker {studentId} {courseName} bind:value={periodDate} bind:due={pickedDue} disabled={saving} />
-			<FieldError {errors} field="periodDate" />
 		</div>
 
 		<div class="grid-2">
 			<div class="field">
 				<label for="pay-amount">Amount paid *</label>
-				<input id="pay-amount" type="number" step="0.01" min="0" class="input-s" class:input-error-s={errors.amountPaid} bind:value={amountPaid} disabled={saving} />
-				{#if pickedDue}<span class="hint">Balance for this period: {money(pickedDue.balance)}</span>{/if}
+				<input id="pay-amount" type="number" step="0.01" min="0" class="input-s" class:input-error-s={errors.amountPaid} bind:value={amountPaid} disabled={saving || forgive} />
 				<FieldError {errors} field="amountPaid" />
 			</div>
 			<div class="field">
@@ -174,7 +191,7 @@
 				<div style="padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px;">
 					{#each discounts as d, i}
 						<div style="display: flex; gap: 8px; align-items: center;">
-							<input type="text" bind:value={d.label} class="input-s" placeholder="Label (e.g. Sibling discount)" disabled={saving} style="flex: 1;" aria-label="Discount label" />
+							<input type="text" bind:value={d.label} class="input-s" placeholder={forgive ? 'Reason (e.g. Left in March)' : 'Label (e.g. Sibling discount)'} disabled={saving} style="flex: 1;" aria-label="Discount label" />
 							<input type="number" step="0.01" min="0.01" bind:value={d.discountAmount} class="input-s" style="width: 130px;" placeholder="Amount" disabled={saving} aria-label="Discount amount" />
 							<button type="button" class="btn-s btn-ghost-s btn-icon-s" style="color: var(--danger);" onclick={() => removeDiscount(i)} disabled={saving} aria-label="Remove discount"><Trash2 size={14} strokeWidth={1.6} /></button>
 						</div>
@@ -197,7 +214,7 @@
 		</div>
 
 		<div style="display:flex; justify-content: space-between; align-items: baseline; padding: 10px 12px; background: var(--bg-elev); border-radius: 8px;">
-			<span class="muted" style="font-size: 13px;">Applied to the period (paid + discounts)</span>
+			<span class="muted" style="font-size: 13px;">Applied to dues, oldest term first (paid + discounts)</span>
 			<span style="font-family: var(--font-serif); font-size: 20px;">{money(applied)}</span>
 		</div>
 
@@ -205,6 +222,6 @@
 	</form>
 	{#snippet footer()}
 		<button class="btn-s btn-secondary-s" onclick={onClose} disabled={saving}>Cancel</button>
-		<button class="btn-s btn-primary-s" type="submit" form="pay-form" disabled={saving}>{#if saving}<span class="spinner"></span>Saving…{:else}Record payment{/if}</button>
+		<button class="btn-s btn-primary-s" type="submit" form="pay-form" disabled={saving}>{#if saving}<span class="spinner"></span>Saving…{:else}{forgive ? 'Forgive' : 'Record payment'}{/if}</button>
 	{/snippet}
 </Modal>

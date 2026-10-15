@@ -1059,3 +1059,20 @@ body {
 @media print {
   .sidebar, .topbar { display: none !important; }
 }
+
+/* Card with a titled header (courses roster, fees page) */
+.course-card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	overflow: hidden;
+}
+.course-card-head {
+	padding: 14px 18px;
+	border-bottom: 1px solid var(--border);
+}
+.course-card-title {
+	font-family: var(--font-serif);
+	font-size: 16px;
+	font-weight: 500;
+}

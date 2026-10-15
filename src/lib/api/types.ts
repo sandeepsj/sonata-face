@@ -1,18 +1,19 @@
-// Types for the sonata-brain API (branch `self-service`).
+// Types for the sonata-brain API (branch `main`).
 //
 // The contract is sonata-brain `docs/api/openapi.json`; ./schema.d.ts is generated from it
 // (`npm run api:types`). The shapes below alias the generated schemas. The spec marks every field
 // optional, so fields the backend always sends are made required here.
 //
-// Types further down marked "not on backend `self-service`" belong to screens hidden behind
-// `features.legacyFeeModel` (see $lib/config/features.ts); they are kept for when those endpoints return.
+// Types marked "not on backend" belong to screens hidden behind `features.missingEndpoints`
+// (see $lib/config/features.ts); they are kept for when those endpoints come back.
 //
 // Dates: `LocalDate` fields are 'YYYY-MM-DD'; `LocalDateTime` fields are 'YYYY-MM-DDTHH:mm:ss'.
 // Money arrives as JSON numbers.
 
-import type { components } from './schema';
+import type { components, paths } from './schema';
 
 type Schemas = components['schemas'];
+type Paths = paths;
 /** Make the listed keys required and non-null. */
 type With<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: NonNullable<T[P]> };
 /** Replace the types of some keys (e.g. nested arrays whose items are made strict here). */
@@ -36,6 +37,7 @@ export const ROUTE_PATHS = [
 	'/api/student-sessions/**',
 	'/api/courses/**',
 	'/api/fee-structures/**',
+	'/api/fee-timeline/**',
 	'/api/payments/**',
 	'/api/discounts/**',
 	'/api/dues/**',
@@ -90,20 +92,20 @@ export type PageResponse<T> = Omit<Schemas['PageStudent'], 'content'> & {
 
 /** Query of GET /api/students/search (values may be form text: they go into the query string as-is) */
 export type StudentSearchParams = {
-	[K in keyof NonNullable<import('./schema').operations['searchStudents']['parameters']['query']>]?:
-		| NonNullable<import('./schema').operations['searchStudents']['parameters']['query']>[K]
+	[K in keyof NonNullable<Paths['/api/students/search']['get']['parameters']['query']>]?:
+		| NonNullable<Paths['/api/students/search']['get']['parameters']['query']>[K]
 		| string;
 };
 
 // ---------- courses ----------
 
-/** Not on backend `self-service`: courses have no status there. */
+/** Course status is not on backend. */
 export type CourseStatus = 'ACTIVE' | 'CLOSED';
 
 export type Course = With<Schemas['Course'], 'name'> & {
-	/** not on backend `self-service` */
+	/** not on backend */
 	status?: CourseStatus;
-	/** not on backend `self-service` */
+	/** not on backend */
 	closedAt?: IsoDateTime | null;
 };
 
@@ -127,171 +129,135 @@ export type SessionCreateRequest = Schemas['StudentSessionCreateRequest'] & {
 
 /** Query of GET /api/student-sessions/all */
 export type SessionQuery = NonNullable<
-	import('./schema').operations['getAllSessions']['parameters']['query']
+	Paths['/api/student-sessions/all']['get']['parameters']['query']
 > & {
-	/** sessions that overlap this date; not on backend `self-service` */
+	/** sessions that overlap this date; not on backend */
 	activeOn?: IsoDate;
 };
 
-// ---------- fee structures & timeline (not on backend `self-service`) ----------
+// ---------- fee structures & timeline (school-wide) ----------
 
-export const TERMS_PER_YEAR = [1, 2, 3, 4, 6, 12] as const;
+export type FeeAmount = With<Schemas['FeeAmount'], 'courseName' | 'amount'>;
 
-export interface TermAmount {
-	termNumber: number;
-	amount: number;
-}
+/** One structure covers every course; a course left out isn't billed while it applies. */
+export type FeeStructure = Override<
+	With<Schemas['StructureResponse'], 'id' | 'name' | 'termMonths' | 'usedInTimeline'>,
+	{ amounts: FeeAmount[] }
+>;
 
-export interface FeeStructure {
-	id: number;
-	name: string;
-	courseName: string;
-	termsPerYear: number;
-	terms: TermAmount[];
-	usedInTimeline: boolean;
-}
+export type FeeStructureRequest = Override<
+	Schemas['StructureRequest'],
+	{ name: string; termMonths: number; amounts: FeeAmount[] }
+>;
 
-export interface FeeStructureRequest {
-	name: string;
-	courseName: string;
-	termsPerYear: number;
-	terms: TermAmount[];
-}
+/** Runs from `effectiveFrom` until the next entry starts (`effectiveTo` is null for the last one). */
+export type TimelineEntry = Override<
+	With<Schemas['EntryResponse'], 'id' | 'feeStructureId' | 'feeStructureName' | 'termMonths' | 'effectiveFrom'>,
+	{ effectiveTo?: IsoDate | null }
+>;
 
-export interface TimelineEntry {
-	id: number;
-	courseName: string;
-	feeStructureId: number;
-	feeStructureName: string;
-	effectiveFrom: IsoDate;
-	effectiveTo: IsoDate | null;
-}
+export type TimelineRequest = With<Schemas['EntryRequest'], 'feeStructureId' | 'effectiveFrom'>;
 
-export interface TimelineRequest {
-	courseName: string;
-	feeStructureId: number;
-	effectiveFrom: IsoDate;
-	effectiveTo: IsoDate | null;
-}
+/** What a fee change does to everyone's dues (also returned by a `?dryRun=true` request, which saves nothing). */
+export type Impact = With<
+	Schemas['Impact'],
+	'students' | 'inserted' | 'updated' | 'deleted' | 'outstandingBefore' | 'outstandingAfter' | 'outstandingChange'
+>;
 
-export interface BillingPeriod {
-	periodStart: IsoDate;
-	periodEnd: IsoDate;
-	termNumber: number;
-	termsPerYear: number;
-	amount: number;
-	feeStructureId: number;
-}
+/** Timeline add/change/delete response */
+export type TimelineChange = Override<TimelineEntry, { dryRun?: boolean; recalculation?: Impact | null }>;
 
-// ---------- payments (new shape; not on backend `self-service`) ----------
+/** Structure update response; `recalculation` is null when the structure isn't on the timeline */
+export type FeeStructureChange = Override<FeeStructure, { dryRun?: boolean; recalculation?: Impact | null }>;
 
-export type PaymentType = 'REGULAR' | 'ADDITIONAL';
+/** One term the timeline produces (GET /api/fee-timeline/preview) */
+export type PreviewTerm = Override<
+	With<Schemas['PreviewTerm'], 'periodStart' | 'periodEnd' | 'feeStructureId' | 'feeStructureName'>,
+	{ amounts: FeeAmount[] }
+>;
 
-export interface DiscountInput {
-	discountAmount: number;
-	label: string;
-	remarks?: string;
-}
+// ---------- payments ----------
 
-export interface Discount {
-	id: number;
-	discountAmount: number;
-	label: string;
-	remarks: string | null;
-}
+export type PaymentType = NonNullable<Schemas['Payment']['paymentType']>;
 
-export interface Payment {
-	id: number;
-	studentId: number;
-	studentName: string;
-	paymentType: PaymentType;
-	courseName: string | null;
-	periodDate: IsoDate | null;
-	amountPaid: number;
-	discountAmount: number;
-	discounts: Discount[];
-	label: string;
-	remarks: string | null;
-	date: IsoDateTime;
-	isActive: boolean;
-	originalType: PaymentType | null;
-	convertedAt: IsoDateTime | null;
-	convertedBy: string | null;
-	createdAt: IsoDateTime | null;
-}
+export type DiscountInput = With<Schemas['DiscountCreateRequest'], 'discountAmount' | 'label'>;
 
-export interface PaymentCreateRequest {
-	studentId: number;
-	paymentType: PaymentType;
-	/** required for REGULAR, optional for ADDITIONAL */
+export type Discount = With<Schemas['Discount'], 'id' | 'discountAmount' | 'label'>;
+
+export type Payment = Override<
+	With<Schemas['Payment'], 'id' | 'paymentType' | 'amountPaid' | 'date' | 'isActive'>,
+	{ student: Student; discounts: Discount[]; discountAmount: number; label: string }
+>;
+
+/** `regularPayment` and `validZeroPayment` in the spec are internal helpers: never sent. */
+export type PaymentCreateRequest = Override<
+	Omit<Schemas['PaymentCreateRequest'], 'regularPayment' | 'validZeroPayment'>,
+	{ discounts?: DiscountInput[] }
+>;
+
+export interface ConvertRequest {
+	/** Needed when the payment has no course */
 	courseName?: string;
-	/** REGULAR only: any date inside the term being paid */
-	periodDate?: IsoDate;
-	amountPaid: number;
-	label: string;
-	remarks?: string;
-	date?: IsoDateTime;
-	discounts?: DiscountInput[];
 }
 
+/** Not on backend: the global payments list takes no filters. */
 export interface PaymentQuery {
 	studentId?: number;
 	courseName?: string;
 	type?: PaymentType;
 	active?: boolean;
-	/** payment date, inclusive */
 	from?: IsoDate;
 	to?: IsoDate;
-	/** REGULAR payments for the billing period containing this date */
-	periodDate?: IsoDate;
 }
 
-export interface ConvertRequest {
-	courseName?: string;
-	periodDate: IsoDate;
-}
+// ---------- dues (calculated, never edited) ----------
 
-// ---------- dues (not on backend `self-service`) ----------
-
-export const DUE_STATUSES = ['DUE', 'PARTIALLY_PAID', 'PAID', 'OVERPAID', 'WAIVED'] as const;
+export const DUE_STATUSES = ['DUE', 'PARTIALLY_PAID', 'PAID'] as const;
 export type DueStatus = (typeof DUE_STATUSES)[number];
 
-export interface Due {
-	id: number;
-	studentId: number;
-	studentName: string;
-	sessionId: number;
-	courseName: string;
-	periodStart: IsoDate;
-	periodEnd: IsoDate;
-	termNumber: number;
-	termsPerYear: number;
-	feeStructureId: number;
-	amount: number;
-	paidAmount: number;
-	discountAmount: number;
-	balance: number;
-	overpaidAmount: number;
-	status: DueStatus;
-}
+export type Due = With<
+	Schemas['DueResponse'],
+	| 'id'
+	| 'studentId'
+	| 'courseName'
+	| 'periodStart'
+	| 'periodEnd'
+	| 'amount'
+	| 'paidAmount'
+	| 'discountAmount'
+	| 'balance'
+	| 'status'
+>;
 
-export interface DuesQuery {
-	studentId?: number;
-	courseName?: string;
-	status?: DueStatus;
-	/** by period start, inclusive */
-	from?: IsoDate;
-	to?: IsoDate;
-}
+/** Query of GET /api/dues */
+export type DuesQuery = NonNullable<Paths['/api/dues']['get']['parameters']['query']>;
 
-export interface DuesSummary {
-	amount: number;
-	paid: number;
-	discount: number;
-	balance: number;
-	overpaid: number;
-	counts: Record<DueStatus, number>;
-}
+export type CourseDuesSummary = With<
+	Schemas['CourseSummary'],
+	'courseName' | 'amount' | 'paid' | 'discount' | 'balance' | 'credit'
+>;
+
+/** `credit` is money paid beyond what is due; it pays new terms as they start. */
+export type DuesSummary = Override<
+	With<Schemas['Summary'], 'amount' | 'paid' | 'discount' | 'balance' | 'credit'>,
+	{ courses: CourseDuesSummary[] }
+>;
+
+export type RebuildScope = 'ALL' | 'STUDENT';
+export type RebuildStatus = 'RUNNING' | 'DONE' | 'FAILED';
+
+export type RebuildJob = Override<
+	With<Schemas['Job'], 'jobId'>,
+	{
+		status: RebuildStatus;
+		scope?: string;
+		students?: number;
+		changes?: { inserted?: number; updated?: number; deleted?: number };
+		errors?: string[];
+	}
+>;
+
+// ---------- not on backend (only used by screens behind features.missingEndpoints) ----------
 
 export type AggregateGroupBy = 'course' | 'month' | 'status';
 
@@ -311,35 +277,13 @@ export interface Waiver {
 	createdAt: IsoDateTime;
 }
 
+/** The waiver screens read a due's session, which DueResponse no longer has */
+export type WaiverDue = Due & { sessionId: number };
+
 export interface WaiverRequest {
 	sessionId: number;
 	periodStart: IsoDate;
 	reason: string;
-}
-
-export type RebuildScope = 'ALL' | 'COURSE' | 'STUDENT';
-export type RebuildStatus = 'RUNNING' | 'DONE' | 'FAILED';
-
-export interface RebuildChange {
-	action: 'CREATE' | 'UPDATE' | 'DELETE' | string;
-	studentId: number;
-	sessionId: number;
-	periodStart: IsoDate;
-}
-
-export interface RebuildJob {
-	jobId: number;
-	scope: RebuildScope;
-	scopeId: string | null;
-	status: RebuildStatus;
-	dryRun: boolean;
-	created: number;
-	updated: number;
-	deleted: number;
-	errors: unknown[];
-	changes: RebuildChange[];
-	startedAt: IsoDateTime | null;
-	finishedAt: IsoDateTime | null;
 }
 
 export interface RebuildSchedule {

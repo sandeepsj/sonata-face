@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
 	import { api, type Student, type StudentSession } from '$lib';
-	import { paymentPeriodLabel } from '$lib/utils/payments';
 	import {
 		Calendar,
 		UserPlus,
@@ -36,7 +35,6 @@
 	$: currentStudent = student || $currentStudentStore.student;
 	$: studentId = currentStudent?.admissionNo;
 	$: payments = $currentStudentStore.payments.data;
-	$: dues = $currentStudentStore.dues.data;
 	$: timelineEvents = buildTimelineEvents(currentStudent, sessions, payments);
 
 	$: groupedByMonth = groupByMonth(timelineEvents);
@@ -57,7 +55,6 @@
 			const [sessionsData] = await Promise.all([
 				api.sessions.list({ studentId }),
 				currentStudentStore.fetchPayments(studentId, true),
-				currentStudentStore.fetchDues(studentId, true)
 			]);
 			sessions = sessionsData;
 		} catch (err) {
@@ -117,13 +114,12 @@
 
 		payments.forEach((payment) => {
 			{
-				const periodInfo = payment.periodDate ? ` · ${paymentPeriodLabel(payment, dues)}` : '';
 				events.push({
 					id: `payment-${payment.id}`,
 					date: payment.date,
 					type: 'payment',
 					title: `Payment: ${payment.label || 'Fee payment'}${payment.isActive ? '' : ' (deactivated)'}`,
-					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${payment.courseName || 'fees'}${periodInfo}`,
+					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${payment.courseName || 'fees'}`,
 					icon: IndianRupee,
 					nodeColor: payment.isActive ? 'var(--info)' : 'var(--fg-muted)',
 					nodeBg: payment.isActive ? 'var(--info-soft)' : 'var(--surface-2)',
@@ -135,7 +131,7 @@
 						date: payment.convertedAt,
 						type: 'payment-conversion',
 						title: `Converted to course fee: ${payment.label || 'payment'}`,
-						description: `By ${payment.convertedBy ?? 'unknown'} · now applied to ${payment.courseName}${periodInfo}`,
+						description: `By ${payment.convertedBy ?? 'unknown'} · now applied to ${payment.courseName}`,
 						icon: ArrowRightLeft,
 						nodeColor: 'var(--accent)',
 						nodeBg: 'var(--accent-soft)',

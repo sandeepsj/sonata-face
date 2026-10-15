@@ -23,7 +23,6 @@
 	import Badge from '$lib/components/Badge.svelte';
 	import type { LayoutData } from './$types';
 	import type { Student, AccessLevel, RoutePath } from '$lib/api/types';
-	import { features } from '$lib/config/features';
 
 	export let data: LayoutData;
 
@@ -72,19 +71,18 @@
 	$: studentId = $page.params.id;
 	$: currentPath = $page.url.pathname;
 
-	// `legacy`: needs endpoints that aren't on the backend yet (features.legacyFeeModel)
-	const navigationItems: { path: string; label: string; icon: typeof User; route: RoutePath; level?: AccessLevel; legacy?: boolean }[] = [
+	const navigationItems: { path: string; label: string; icon: typeof User; route: RoutePath; level?: AccessLevel}[] = [
 		{ path: '', label: 'Overview', icon: User, route: '/api/students/**' },
 		{ path: '/edit', label: 'Edit', icon: Edit, route: '/api/students/**', level: 'write' },
 		{ path: '/sessions', label: 'Sessions', icon: BookOpen, route: '/api/student-sessions/**' },
-		{ path: '/payments', label: 'Payment history', icon: Banknote, route: '/api/payments/**', legacy: true },
-		{ path: '/manage-payments', label: 'Manage payments', icon: Settings, route: '/api/payments/**', level: 'write', legacy: true },
-		{ path: '/receipts', label: 'Receipts', icon: Receipt, route: '/api/payments/**', legacy: true },
-		{ path: '/timeline', label: 'Timeline', icon: Clock, route: '/api/payments/**', legacy: true },
-		{ path: '/dues', label: 'Dues & fees', icon: CreditCard, route: '/api/dues/**', legacy: true }
+		{ path: '/payments', label: 'Payment history', icon: Banknote, route: '/api/payments/**' },
+		{ path: '/manage-payments', label: 'Manage payments', icon: Settings, route: '/api/payments/**', level: 'write' },
+		{ path: '/receipts', label: 'Receipts', icon: Receipt, route: '/api/payments/**' },
+		{ path: '/timeline', label: 'Timeline', icon: Clock, route: '/api/payments/**' },
+		{ path: '/dues', label: 'Dues & fees', icon: CreditCard, route: '/api/dues/**' }
 	];
 
-	$: activeNavItems = navigationItems.filter((item) => (!item.legacy || features.legacyFeeModel) && $canAccess(item.route, item.level)).map((item) => ({
+	$: activeNavItems = navigationItems.filter((item) => $canAccess(item.route, item.level)).map((item) => ({
 		...item,
 		active:
 			currentPath === `/students/${studentId}${item.path}` ||
@@ -163,12 +161,12 @@
 					{/if}
 				</div>
 				<div class="hero-actions" style="margin-top: 10px;">
-					{#if features.legacyFeeModel && $canAccess('/api/dues/**') && $canAccess('/api/payments/**', 'write')}
+					{#if $canAccess('/api/dues/**') && $canAccess('/api/payments/**', 'write')}
 						<button class="btn-s btn-primary-s btn-sm-s" on:click={() => navigateToTab('/dues')}>
 							<CreditCard size={14} strokeWidth={1.6} /> Pay fees
 						</button>
 					{/if}
-					{#if features.legacyFeeModel && $canAccess('/api/payments/**')}
+					{#if $canAccess('/api/payments/**')}
 						<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/receipts')}>
 							<Receipt size={14} strokeWidth={1.6} /> Receipts
 						</button>

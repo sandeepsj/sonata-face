@@ -93,53 +93,27 @@ function createCurrentStudentStore() {
 		},
 
 		fetchPayments(studentId: number, force = false) {
-			return load('payments', studentId, force, () => paymentsApi.list({ studentId }));
+			return load('payments', studentId, force, () => paymentsApi.forStudent(studentId));
 		},
 
 		fetchSessions(studentId: number, force = false) {
 			return load('sessions', studentId, force, () => sessionsApi.list({ studentId }));
 		},
 
+		/** Not on backend: waivers were replaced by ₹0 payments with a discount */
 		fetchWaivers(studentId: number, force = false) {
+			if (!features.missingEndpoints) return Promise.resolve();
 			return load('waivers', studentId, force, () => duesApi.waivers(studentId));
 		},
 
-		/**
-		 * Dues are rebuilt in the background after a payment, session or waiver change.
-		 * Re-read them every second (up to ~10s) until they differ from what we had.
-		 */
-		async refreshDuesUntilChanged(studentId: number, timeoutMs = 10_000) {
-			const before = JSON.stringify(get(store).dues.data);
-			const started = Date.now();
-			while (Date.now() - started < timeoutMs) {
-				await new Promise((r) => setTimeout(r, 1000));
-				try {
-					const data = await duesApi.list({ studentId });
-					if (JSON.stringify(data) !== before) {
-						update((s) => ({
-							...s,
-							dues: { data, loading: false, error: null, lastFetched: new Date(), studentId }
-						}));
-						return true;
-					}
-				} catch {
-					break;
-				}
-			}
-			await api.fetchDues(studentId, true);
-			return false;
-		},
-
-		/** Refresh everything that a write may have changed. */
+		/** Refresh everything a write may have changed. Dues are recalculated before the write returns. */
 		async refreshAfterWrite(studentId: number) {
-			// Payments, dues and waivers aren't on backend `self-service` yet
-			if (!features.legacyFeeModel) return api.fetchSessions(studentId, true);
 			await Promise.all([
 				api.fetchPayments(studentId, true),
 				api.fetchSessions(studentId, true),
+				api.fetchDues(studentId, true),
 				api.fetchWaivers(studentId, true)
 			]);
-			await api.refreshDuesUntilChanged(studentId);
 		},
 
 		isSessionActive(sessionId: number): boolean {
