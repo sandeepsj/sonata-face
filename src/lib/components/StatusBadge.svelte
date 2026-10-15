@@ -16,10 +16,6 @@
 				return { kind: 'danger', label: 'Due' };
 			case 'PARTIALLY_PAID':
 				return { kind: 'warn', label: 'Partial' };
-			case 'OVERPAID':
-				return { kind: 'info', label: 'Overpaid' };
-			case 'WAIVED':
-				return { kind: 'neutral', label: 'Waived' };
 			case 'CLOSED':
 				return { kind: 'neutral', label: 'Closed' };
 			case 'INACTIVE':

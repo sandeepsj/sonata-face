@@ -1,11 +1,12 @@
 // Feature flags.
 //
-// legacyFeeModel: screens built for the fee-timeline / period-based dues model, whose endpoints are not on
-// backend branch `self-service` (fee timeline, fee structures list/clone/edit/delete, course close/reopen,
-// dues list/summary/aggregate, waivers, dues rebuild & legacy comparison, filtered payment list, payment
-// create with periodDate, payment convert-to-course-fee, disjoin at a past date, roster as of a date).
-// While false they are hidden from navigation and their routes show a "not available" panel. The code is kept
-// as-is until the backend decides whether those features come back.
+// missingEndpoints: screens whose endpoints are not on backend `main`. While false they are hidden from
+// navigation (direct URLs show a "not available" panel) and the code is kept as-is until the backend decides
+// whether those features come back:
+//   course close/reopen and course status, course roster as of a date, ending a session on a past date,
+//   the global Dues page (aggregates, per-course summary), the global Payments page (filtered list),
+//   waivers (replaced by ₹0 payments with a discount), dues-rebuild COURSE scope / dry run / schedule /
+//   legacy comparison.
 export const features = {
-	legacyFeeModel: false
+	missingEndpoints: false
 } as const;

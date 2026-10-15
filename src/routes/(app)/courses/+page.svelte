@@ -8,23 +8,19 @@
 	import { formatDate } from '$lib/utils/format';
 	import Badge from '$lib/components/Badge.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
-	import FeeStructuresTab from './FeeStructuresTab.svelte';
-	import FeeTimelineTab from './FeeTimelineTab.svelte';
 	import CourseStudentsTab from './CourseStudentsTab.svelte';
 	import { features } from '$lib/config/features';
 
-	// Course status, close/reopen and the fee tabs need endpoints that aren't on backend `self-service`
-	const legacy = features.legacyFeeModel;
+	// Course status and close/reopen aren't on backend. Fee structures and the timeline are on the Fees page.
+	const legacy = features.missingEndpoints;
 
 	type StatusFilter = 'ACTIVE' | 'CLOSED' | 'ALL';
-	type DetailTab = 'structures' | 'timeline' | 'students';
 
 	let courses: Course[] = $state([]);
 	let activeSessions: StudentSession[] = $state([]);
 	let loading = $state(true);
 	let error = $state('');
 	let statusFilter = $state<StatusFilter>(legacy ? 'ACTIVE' : 'ALL');
-	let tab = $state<DetailTab>('timeline');
 
 	// add course
 	let newName = $state('');
@@ -34,7 +30,6 @@
 	let busy = $state(false);
 
 	let canWriteCourse = $derived($canAccess('/api/courses/**', 'write'));
-	let canReadFees = $derived(legacy && $canAccess('/api/fee-structures/**'));
 	let canReadSessions = $derived($canAccess('/api/student-sessions/**'));
 
 	let shown = $derived(statusFilter === 'ALL' ? courses : courses.filter((c) => c.status === statusFilter));
@@ -72,8 +67,6 @@
 
 	onMount(load);
 
-	// fall back to a tab the user can see
-	let shownTab = $derived<DetailTab>(tab !== 'students' && !canReadFees ? 'students' : tab);
 
 	function select(name: string) {
 		const url = new URL($page.url);
@@ -140,8 +133,8 @@
 	<div class="page-head">
 		<div class="page-head-row">
 			<div>
-				<h1 class="page-title">Courses &amp; <em>fees</em></h1>
-				<p class="page-subtitle">{legacy ? 'Courses, their fee structures, and which structure applies when.' : 'Courses and who is enrolled in them.'}</p>
+				<h1 class="page-title">Courses &amp; <em>students</em></h1>
+				<p class="page-subtitle">Courses and who is enrolled in them. Fees are set on the Fees page.</p>
 			</div>
 			{#if legacy}
 				<div class="seg" role="radiogroup" aria-label="Course status">
@@ -251,23 +244,15 @@
 					</header>
 
 					<div class="course-tabs">
-						{#if canReadFees}
-							<button class:is-active={shownTab === 'timeline'} onclick={() => (tab = 'timeline')}>Fee timeline</button>
-							<button class:is-active={shownTab === 'structures'} onclick={() => (tab = 'structures')}>Fee structures</button>
-						{/if}
 						{#if canReadSessions}
-							<button class:is-active={shownTab === 'students'} onclick={() => (tab = 'students')}>
+							<button class="is-active">
 								Students <span class="tab-badge">{studentCounts.get(selected.name) ?? 0}</span>
 							</button>
 						{/if}
 					</div>
 
 					{#key selected.name}
-						{#if shownTab === 'structures' && canReadFees}
-							<FeeStructuresTab course={selected} />
-						{:else if shownTab === 'timeline' && canReadFees}
-							<FeeTimelineTab course={selected} />
-						{:else if shownTab === 'students' && canReadSessions}
+						{#if canReadSessions}
 							<CourseStudentsTab course={selected} />
 						{/if}
 					{/key}
@@ -491,21 +476,6 @@
 		border-radius: 999px;
 	}
 
-	:global(.course-card) {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 12px;
-		overflow: hidden;
-	}
-	:global(.course-card-head) {
-		padding: 14px 18px;
-		border-bottom: 1px solid var(--border);
-	}
-	:global(.course-card-title) {
-		font-family: var(--font-serif);
-		font-size: 16px;
-		font-weight: 500;
-	}
 	.course-row.is-closed .course-row-name { color: var(--fg-muted); }
 	.add-course { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
 </style>

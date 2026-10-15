@@ -17,7 +17,8 @@
 		History,
 		ShieldCheck,
 		UserCog,
-		RefreshCcw
+		RefreshCcw,
+		CalendarRange
 	} from 'lucide-svelte';
 	import { authStore, canAccess } from '$lib/stores/authStore';
 	import type { AccessLevel, RoutePath } from '$lib/api/types';
@@ -92,45 +93,46 @@
 	// ...and after each navigation (throttled in the store)
 	afterNavigate(() => authStore.loadMe());
 
-	/** `legacy`: needs endpoints that aren't on the backend yet; shown only with `features.legacyFeeModel`. */
-	type NavItem = { href: string; label: string; icon: typeof Users; route: RoutePath; level?: AccessLevel; legacy?: boolean };
+	/** `missing`: needs endpoints that aren't on the backend yet; shown only with `features.missingEndpoints`. */
+	type NavItem = { href: string; label: string; icon: typeof Users; route: RoutePath; level?: AccessLevel; missing?: boolean };
 
 	const NAV: NavItem[] = [
 		{ href: '/students', label: 'Students', icon: Users, route: '/api/students/**' },
 		{ href: '/courses', label: 'Courses', icon: BookOpen, route: '/api/courses/**' },
-		{ href: '/dues', label: 'Dues', icon: IndianRupee, route: '/api/dues/**', legacy: true },
-		{ href: '/payments', label: 'Payments', icon: Banknote, route: '/api/payments/**', legacy: true }
+		{ href: '/fees', label: 'Fees', icon: CalendarRange, route: '/api/fee-structures/**' },
+		{ href: '/dues', label: 'Dues', icon: IndianRupee, route: '/api/dues/**', missing: true },
+		{ href: '/payments', label: 'Payments', icon: Banknote, route: '/api/payments/**', missing: true }
 	];
 
 	const ADMIN_NAV: NavItem[] = [
 		{ href: '/admin/users', label: 'Users', icon: UserCog, route: '/api/users/**' },
 		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck, route: '/api/roles/**' },
-		{ href: '/admin/dues-rebuild', label: 'Dues rebuild', icon: RefreshCcw, route: '/api/dues/**', legacy: true }
+		{ href: '/admin/dues-rebuild', label: 'Recalculate dues', icon: RefreshCcw, route: '/api/dues/**', level: 'write' }
 	];
 
-	type Guard = { re: RegExp; route: RoutePath; what: string; legacy?: boolean };
+	type Guard = { re: RegExp; route: RoutePath; what: string; missing?: boolean };
 
 	// Which route each screen needs to read (most specific prefix first)
 	const GUARDS: Guard[] = [
 		{ re: /^\/students\/[^/]+\/sessions/, route: '/api/student-sessions/**', what: 'sessions' },
-		{ re: /^\/students\/[^/]+\/dues/, route: '/api/dues/**', what: 'dues', legacy: true },
-		{ re: /^\/students\/[^/]+\/(payments|manage-payments|receipts)/, route: '/api/payments/**', what: 'payments', legacy: true },
-		{ re: /^\/students\/[^/]+\/timeline/, route: '/api/payments/**', what: 'the fee timeline', legacy: true },
+		{ re: /^\/students\/[^/]+\/dues/, route: '/api/dues/**', what: 'dues' },
+		{ re: /^\/students\/[^/]+\/(payments|manage-payments|receipts|timeline)/, route: '/api/payments/**', what: 'payments' },
 		{ re: /^\/students\/add/, route: '/api/students/**', what: 'adding students' },
 		{ re: /^\/students/, route: '/api/students/**', what: 'students' },
 		{ re: /^\/courses/, route: '/api/courses/**', what: 'courses' },
-		{ re: /^\/dues/, route: '/api/dues/**', what: 'dues', legacy: true },
-		{ re: /^\/payments/, route: '/api/payments/**', what: 'payments', legacy: true },
-		{ re: /^\/admin\/dues-rebuild/, route: '/api/dues/**', what: 'dues recalculation', legacy: true },
+		{ re: /^\/fees/, route: '/api/fee-structures/**', what: 'fees' },
+		{ re: /^\/dues/, route: '/api/dues/**', what: 'the dues overview', missing: true },
+		{ re: /^\/payments/, route: '/api/payments/**', what: 'the payments overview', missing: true },
+		{ re: /^\/admin\/dues-rebuild/, route: '/api/dues/**', what: 'dues recalculation' },
 		{ re: /^\/admin\/roles/, route: '/api/roles/**', what: 'roles' },
 		{ re: /^\/admin/, route: '/api/users/**', what: 'users' }
 	];
 	let guard = $derived(GUARDS.find((g) => g.re.test($page.url.pathname)));
-	let unavailable = $derived(!!guard?.legacy && !features.legacyFeeModel);
+	let unavailable = $derived(!!guard?.missing && !features.missingEndpoints);
 	let allowed = $derived(!guard || !$authStore.user || $canAccess(guard.route));
 
-	let nav = $derived(NAV.filter((i) => (!i.legacy || features.legacyFeeModel) && $canAccess(i.route, i.level)));
-	let adminNav = $derived(ADMIN_NAV.filter((i) => (!i.legacy || features.legacyFeeModel) && $canAccess(i.route, i.level)));
+	let nav = $derived(NAV.filter((i) => (!i.missing || features.missingEndpoints) && $canAccess(i.route, i.level)));
+	let adminNav = $derived(ADMIN_NAV.filter((i) => (!i.missing || features.missingEndpoints) && $canAccess(i.route, i.level)));
 
 	function pageCrumbs(path: string) {
 		const parts = path.split('/').filter(Boolean);

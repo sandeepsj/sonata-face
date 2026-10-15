@@ -93,7 +93,7 @@
 		try {
 			endingSession = true;
 			await api.sessions.disjoin(sessionToEnd.id, endMode === 'past' ? fromDateTimeLocalInput(endDate) : undefined);
-			toast.ok(`${sessionToEnd.course.name} session ended.${features.legacyFeeModel ? ' Dues are being recalculated.' : ''}`);
+			toast.ok(`${sessionToEnd.course.name} session ended. Dues updated.`);
 			showConfirmModal = false;
 			sessionToEnd = null;
 			await currentStudentStore.refreshAfterWrite(studentId);
@@ -140,7 +140,7 @@
 			if (sessionType === 'historical' && customDisjoinDate)
 				req.dateOfDisjoining = fromDateTimeLocalInput(customDisjoinDate);
 			await api.sessions.create(req);
-			toast.ok(`Enrolled in ${selectedCourseName}.${features.legacyFeeModel ? ' Dues are being calculated.' : ''}`);
+			toast.ok(`Enrolled in ${selectedCourseName}. Dues updated.`);
 			closeEnrollmentModal();
 			await currentStudentStore.refreshAfterWrite(studentId);
 		} catch (err) {
@@ -336,7 +336,7 @@
 						</div>
 					{/if}
 
-					{#if features.legacyFeeModel}<span class="hint">Only active courses are listed. Dues are calculated from the course's fee timeline.</span>{/if}
+					<span class="hint">Dues are calculated from the school's fee timeline.</span>
 					<ErrorCallout message={enrollError} />
 				</div>
 			</div>
@@ -371,8 +371,8 @@
 						</div>
 					</div>
 				</div>
-				<!-- Ending on a past date isn't on backend `self-service` (disjoin takes no date) -->
-				<div class="field" style="margin-bottom: 14px;" hidden={!features.legacyFeeModel}>
+				<!-- Ending on a past date isn't on backend (disjoin takes no date) -->
+				<div class="field" style="margin-bottom: 14px;" hidden={!features.missingEndpoints}>
 					<span class="kpi-label">Session ends</span>
 					<div class="seg">
 						<button class:active={endMode === 'now'} on:click={() => (endMode = 'now')} disabled={endingSession}>Now</button>

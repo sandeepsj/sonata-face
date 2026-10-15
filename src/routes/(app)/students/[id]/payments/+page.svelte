@@ -3,7 +3,7 @@
 	import type { Student } from '$lib';
 	import { currentStudentStore } from '$lib';
 	import { formatDate, formatDateTime } from '$lib/utils/format';
-	import { amountCleared as calculateAmountCleared, conversionNote, paymentPeriodLabel } from '$lib/utils/payments';
+	import { amountCleared as calculateAmountCleared, conversionNote } from '$lib/utils/payments';
 	import {
 		AlertCircle,
 		Calendar,
@@ -23,7 +23,6 @@
 	$: payments = currentStudentState.payments.data;
 	$: loading = currentStudentState.payments.loading;
 	$: error = currentStudentState.payments.error;
-	$: dues = currentStudentState.dues.data;
 
 	let expandedPaymentIds = new Set<number>();
 	let showInactive = false;
@@ -43,7 +42,6 @@
 	onMount(async () => {
 		const sd = currentStudent;
 		if (!sd?.admissionNo) return;
-		await currentStudentStore.fetchDues(sd.admissionNo, true);
 		await currentStudentStore.fetchPayments(sd.admissionNo, true);
 	});
 
@@ -150,9 +148,6 @@
 									<span style="color: var(--fg-muted);">Course:</span>
 									<span class="strong">{payment.courseName}</span>
 								</div>
-							{/if}
-							{#if payment.periodDate}
-								<div style="font-size: 12.5px; color: var(--fg-muted);">Period: {paymentPeriodLabel(payment, dues)}</div>
 							{/if}
 							{#if conversionNote(payment)}
 								<div style="font-size: 12px; color: var(--fg-muted);">{conversionNote(payment)}</div>

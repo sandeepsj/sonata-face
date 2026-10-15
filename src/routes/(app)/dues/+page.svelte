@@ -13,7 +13,7 @@
 	type StatusFilter = '' | 'ALL' | DueStatus;
 
 	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-	const STATUS_LABEL: Record<DueStatus, string> = { DUE: 'Due', PARTIALLY_PAID: 'Partially paid', PAID: 'Paid', OVERPAID: 'Overpaid', WAIVED: 'Waived' };
+	const STATUS_LABEL: Record<DueStatus, string> = { DUE: 'Due', PARTIALLY_PAID: 'Partially paid', PAID: 'Paid' };
 
 	let groupBy = $state<AggregateGroupBy>('course');
 	let statusFilter = $state<StatusFilter>('');
@@ -91,7 +91,7 @@
 		loadDetails(key);
 		if (groupBy === 'course') {
 			try {
-				courseSummary = await api.dues.summary({ courseName: key });
+				courseSummary = await api.dues.courseSummary(key);
 			} catch {
 				courseSummary = null;
 			}
@@ -320,7 +320,7 @@
 									{#if courseSummary}
 										<br />All time for this course: billed <Money value={courseSummary.amount} mono={false} />, paid <Money value={courseSummary.paid} mono={false} />,
 										discounts <Money value={courseSummary.discount} mono={false} />, balance <Money value={courseSummary.balance} mono={false} />
-										{#if courseSummary.overpaid > 0}, overpaid <Money value={courseSummary.overpaid} mono={false} />{/if}
+										{#if courseSummary.credit > 0}, credit <Money value={courseSummary.credit} mono={false} />{/if}
 									{/if}
 								</p>
 							</div>

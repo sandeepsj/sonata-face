@@ -3,7 +3,7 @@
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
 	import type { Student, Payment } from '$lib';
 	import { formatDate } from '$lib/utils/format';
-	import { amountCleared, paymentPeriodLabel } from '$lib/utils/payments';
+	import { amountCleared } from '$lib/utils/payments';
 	import { Printer, Receipt, CheckSquare, Square, X } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
@@ -19,14 +19,12 @@
 	$: currentStudent = student || $currentStudentStore.student;
 	$: studentId = currentStudent?.admissionNo;
 	$: activePayments = $currentStudentStore.payments.data.filter((p) => p.isActive);
-	$: dues = $currentStudentStore.dues.data;
 	$: allSelected = activePayments.length > 0 && selectedPaymentIds.size === activePayments.length;
 
 	onMount(async () => {
 		if (studentId) {
 			await Promise.all([
 				currentStudentStore.fetchPayments(studentId, true),
-				currentStudentStore.fetchDues(studentId, true)
 			]);
 		}
 	});
@@ -51,7 +49,6 @@
 				date: payment.date,
 				label: payment.label,
 				courseName: payment.courseName,
-				period: payment.periodDate ? paymentPeriodLabel(payment, dues) : null,
 				amountPaid: payment.amountPaid,
 				discountAmount: payment.discountAmount,
 				discounts: payment.discounts
@@ -154,9 +151,6 @@
 						<td>{payment.label || '—'}</td>
 						<td>
 							<div class="strong">{payment.courseName || '—'}</div>
-							{#if payment.periodDate}
-								<div class="muted" style="font-size: 11px;">{paymentPeriodLabel(payment, dues)}</div>
-							{/if}
 						</td>
 						<td>
 							{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Course fee</Badge>

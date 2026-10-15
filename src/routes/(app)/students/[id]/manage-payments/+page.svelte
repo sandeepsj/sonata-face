@@ -2,20 +2,18 @@
 	import { page } from '$app/stores';
 	import { Trash2, AlertTriangle, ArrowRightLeft } from 'lucide-svelte';
 	import { api, canAccess, currentStudentStore, errorMessage, fieldErrors, toast } from '$lib';
-	import type { Course, Due, Payment } from '$lib/api/types';
+	import type { Course, Payment } from '$lib/api/types';
 	import { formatDate } from '$lib/utils/format';
-	import { amountCleared, conversionNote, paymentPeriodLabel } from '$lib/utils/payments';
+	import { amountCleared, conversionNote } from '$lib/utils/payments';
 	import Money from '$lib/components/Money.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import FieldError from '$lib/components/FieldError.svelte';
-	import PeriodPicker from '$lib/components/PeriodPicker.svelte';
 
 	let studentId = $derived(Number($page.params.id));
 	let st = $derived($currentStudentStore);
 	let activePayments = $derived(st.payments.data.filter((p) => p.isActive));
-	let dues = $derived(st.dues.data);
 	let canWrite = $derived($canAccess('/api/payments/**', 'write'));
 
 	// deactivate
@@ -27,8 +25,6 @@
 	let toConvert: Payment | null = $state(null);
 	let courses: Course[] = $state([]);
 	let convertCourse = $state('');
-	let convertPeriod = $state('');
-	let convertDue: Due | null = $state(null);
 	let converting = $state(false);
 	let convertError = $state('');
 	let convertErrors: Record<string, string> = $state({});
@@ -50,7 +46,7 @@
 		deactivateError = '';
 		try {
 			await api.payments.deactivate(toDeactivate.id);
-			toast.ok(toDeactivate.paymentType === 'REGULAR' ? 'Payment deactivated. Dues are being recalculated.' : 'Payment deactivated');
+			toast.ok(toDeactivate.paymentType === 'REGULAR' ? 'Payment deactivated. Dues updated.' : 'Payment deactivated');
 			toDeactivate = null;
 			await currentStudentStore.refreshAfterWrite(studentId);
 		} catch (e) {
@@ -64,8 +60,6 @@
 	async function openConvert(p: Payment) {
 		toConvert = p;
 		convertCourse = '';
-		convertPeriod = '';
-		convertDue = null;
 		convertError = '';
 		convertErrors = {};
 		try {
@@ -86,17 +80,13 @@
 		convertErrors = {};
 		convertError = '';
 		if (!convertCourse) convertErrors.courseName = 'Choose a course';
-		if (!convertPeriod) convertErrors.periodDate = 'Choose the period this payment was for';
-		if (convertDue && amountCleared(toConvert) > convertDue.balance)
-			convertErrors.periodDate = `This payment settles ${amountCleared(toConvert)} but the period's balance is ${convertDue.balance}`;
 		if (Object.keys(convertErrors).length) return;
 		converting = true;
 		try {
 			await api.payments.convertToCourseFee(toConvert.id, {
-				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined,
-				periodDate: convertPeriod
+				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined
 			});
-			toast.ok('Converted to a course fee. Dues are being recalculated.');
+			toast.ok('Converted to a course fee. Dues updated.');
 			toConvert = null;
 			await currentStudentStore.refreshAfterWrite(studentId);
 		} catch (e) {
@@ -145,7 +135,7 @@
 			<table class="tbl">
 				<thead>
 					<tr>
-						<th>Date</th><th>Label</th><th>Type</th><th>Course</th><th>Period</th>
+						<th>Date</th><th>Label</th><th>Type</th><th>Course</th>
 						<th style="text-align: right;">Paid</th><th style="text-align: right;">Discount</th><th style="text-align: right;">Total</th>
 						{#if canWrite}<th style="text-align: right;">Actions</th>{/if}
 					</tr>
@@ -161,7 +151,6 @@
 							</td>
 							<td><StatusBadge status={p.paymentType} /></td>
 							<td>{p.courseName || '—'}</td>
-							<td>{paymentPeriodLabel(p, dues)}</td>
 							<td class="num" style="text-align: right;"><Money value={p.amountPaid} /></td>
 							<td class="num" style="text-align: right;"><Money value={p.discountAmount || 0} /></td>
 							<td class="num strong" style="text-align: right;"><Money value={amountCleared(p)} /></td>
@@ -192,12 +181,12 @@
 				<div style="display: flex; justify-content: space-between;"><span class="muted">Date</span><span class="strong">{formatDate(toDeactivate.date)}</span></div>
 				<div style="display: flex; justify-content: space-between;"><span class="muted">Label</span><span class="strong">{toDeactivate.label}</span></div>
 				<div style="display: flex; justify-content: space-between;"><span class="muted">Type</span><StatusBadge status={toDeactivate.paymentType} /></div>
-				<div style="display: flex; justify-content: space-between;"><span class="muted">Course · period</span><span class="strong">{toDeactivate.courseName || '—'} · {paymentPeriodLabel(toDeactivate, dues)}</span></div>
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Course</span><span class="strong">{toDeactivate.courseName || '—'}</span></div>
 				<div style="display: flex; justify-content: space-between;"><span class="muted">Paid + discount</span><span class="strong"><Money value={toDeactivate.amountPaid} /> + <Money value={toDeactivate.discountAmount} /></span></div>
 			</div>
 		</div>
 		{#if toDeactivate.paymentType === 'REGULAR'}
-			<div class="callout"><div class="callout-body">The period's balance goes back up by the amount paid plus discounts.</div></div>
+			<div class="callout"><div class="callout-body">The student's dues are recalculated without it, so what it paid becomes owed again.</div></div>
 		{/if}
 		<div style="margin-top: 12px;"><ErrorCallout message={deactivateError} /></div>
 	{/if}
@@ -210,19 +199,15 @@
 <Modal open={toConvert !== null} title="Convert to course fee" subtitle={toConvert ? `"${toConvert.label}" · ${formatDate(toConvert.date)} · settles ₹${amountCleared(toConvert)}` : ''} size="lg" busy={converting} onClose={() => (toConvert = null)}>
 	{#if toConvert}
 		<div style="display:flex; flex-direction:column; gap: 14px;">
-			<div class="callout info"><div class="callout-body">The payment keeps its amount, date, discounts and remarks. It becomes a course fee for the chosen period, and the conversion is recorded with your name.</div></div>
+			<div class="callout info"><div class="callout-body">The payment keeps its amount, date, discounts and remarks. It becomes a course fee that pays the oldest unpaid term of the course first, and the conversion is recorded with your name.</div></div>
 			<div class="field">
 				<label for="cv-course">Course *</label>
 				<select id="cv-course" class="input-s" bind:value={convertCourse} disabled={converting}>
 					<option value="">Choose a course…</option>
 					{#each convertOptions as c}<option value={c.name}>{c.name}</option>{/each}
 				</select>
+				{#if convertOptions.length === 0}<span class="hint">A course fee needs a session in its course; the student has none.</span>{/if}
 				<FieldError errors={convertErrors} field="courseName" />
-			</div>
-			<div class="field">
-				<span class="kpi-label">Period *</span>
-				<PeriodPicker {studentId} courseName={convertCourse} bind:value={convertPeriod} bind:due={convertDue} disabled={converting} />
-				<FieldError errors={convertErrors} field="periodDate" />
 			</div>
 			<ErrorCallout message={convertError} />
 		</div>

@@ -1,20 +1,20 @@
 // The one module that talks to the sonata-brain API.
-// Contract: sonata-brain `docs/api/openapi.json` (branch `self-service`). Types: ./types.ts, built on the
+// Contract: sonata-brain `docs/api/openapi.json` (branch `main`). Types: ./types.ts, built on the
 // generated ./schema.d.ts (`npm run api:types`).
-// Groups marked "not on backend `self-service`" are only used by screens behind `features.legacyFeeModel`.
+// Calls marked "not on backend" are only used by screens behind `features.missingEndpoints`.
 
 import { config as appConfig } from '$lib/config';
 import type {
 	AggregateGroupBy,
 	AggregateRow,
 	ApiErrorBody,
-	BillingPeriod,
 	ConvertRequest,
 	Course,
 	Due,
 	DuesQuery,
 	DuesSummary,
 	FeeStructure,
+	FeeStructureChange,
 	FeeStructureRequest,
 	FieldErrorBody,
 	IsoDate,
@@ -25,6 +25,7 @@ import type {
 	Payment,
 	PaymentCreateRequest,
 	PaymentQuery,
+	PreviewTerm,
 	RebuildJob,
 	RebuildSchedule,
 	RebuildScope,
@@ -36,6 +37,7 @@ import type {
 	StudentInput,
 	StudentSearchParams,
 	StudentSession,
+	TimelineChange,
 	TimelineEntry,
 	TimelineRequest,
 	TokenResponse,
@@ -322,9 +324,9 @@ export const students = {
 export const courses = {
 	list: () => get<Course[]>('/api/courses'),
 	create: (name: string) => post<Course>('/api/courses', { name }),
-	/** Not on backend `self-service` */
+	/** Not on backend */
 	close: (name: string) => patch<Course>(`/api/courses/${enc(name)}/close`),
-	/** Not on backend `self-service` */
+	/** Not on backend */
 	reopen: (name: string) => patch<Course>(`/api/courses/${enc(name)}/reopen`)
 };
 
@@ -335,63 +337,82 @@ export const sessions = {
 	list: (q: SessionQuery = {}) => get<StudentSession[]>(`/api/student-sessions/all${qs(q as Query)}`),
 	get: (id: number) => get<StudentSession>(`/api/student-sessions/${id}`),
 	create: (body: SessionCreateRequest) => post<StudentSession>('/api/student-sessions', body),
-	/** Disjoin now. A past `date` (YYYY-MM-DDTHH:mm:ss) is not on backend `self-service`, which takes no body. */
+	/** Disjoin now. A past `date` (YYYY-MM-DDTHH:mm:ss) is not on backend, which takes no body. */
 	disjoin: (id: number, date?: IsoDateTime) =>
 		patch<StudentSession>(`/api/student-sessions/${id}/disjoin`, date ? { date } : undefined)
 };
 
-// ---------- fee structures & timeline (not on backend `self-service`) ----------
+// ---------- fee structures & timeline (school-wide) ----------
 
 export const feeStructures = {
-	list: (courseName?: string) => get<FeeStructure[]>(`/api/fee-structures${qs({ courseName })}`),
+	list: () => get<FeeStructure[]>('/api/fee-structures'),
 	get: (id: number) => get<FeeStructure>(`/api/fee-structures/${id}`),
 	create: (body: FeeStructureRequest) => post<FeeStructure>('/api/fee-structures', body),
-	update: (id: number, body: FeeStructureRequest) => put<FeeStructure>(`/api/fee-structures/${id}`, body),
-	clone: (id: number, name: string) => post<FeeStructure>(`/api/fee-structures/${id}/clone`, { name }),
-	/** 409 when the structure is used in the timeline */
+	/**
+	 * Recalculates everyone's dues when the structure is on the timeline (`recalculation` reports it).
+	 * 409 if a termMonths change breaks the timeline. `dryRun` checks and calculates but saves nothing.
+	 */
+	update: (id: number, body: FeeStructureRequest, dryRun = false) =>
+		put<FeeStructureChange>(`/api/fee-structures/${id}${qs({ dryRun: dryRun || undefined })}`, body),
+	/** 409 while the structure is on the timeline */
 	remove: (id: number) => del(`/api/fee-structures/${id}`)
 };
 
+/**
+ * Every change recalculates all dues before it returns and reports it in `recalculation`; on failure nothing is
+ * applied. `dryRun` runs every check and the recalculation, then saves nothing. A start that isn't a term start
+ * → 400 naming the nearest valid dates.
+ */
 export const feeTimeline = {
-	list: (courseName: string) => get<TimelineEntry[]>(`/api/fee-timeline${qs({ courseName })}`),
-	create: (body: TimelineRequest) => post<TimelineEntry>('/api/fee-timeline', body),
-	update: (id: number, body: TimelineRequest) => put<TimelineEntry>(`/api/fee-timeline/${id}`, body),
-	remove: (id: number) => del(`/api/fee-timeline/${id}`),
-	/** Billing periods the current timeline produces that overlap [from, to] */
-	preview: (courseName: string, from: IsoDate, to: IsoDate) =>
-		get<BillingPeriod[]>(`/api/fee-timeline/preview${qs({ courseName, from, to })}`)
+	list: () => get<TimelineEntry[]>('/api/fee-timeline'),
+	create: (body: TimelineRequest, dryRun = false) =>
+		post<TimelineChange>(`/api/fee-timeline${qs({ dryRun: dryRun || undefined })}`, body),
+	update: (id: number, body: TimelineRequest, dryRun = false) =>
+		put<TimelineChange>(`/api/fee-timeline/${id}${qs({ dryRun: dryRun || undefined })}`, body),
+	remove: (id: number, dryRun = false) =>
+		request<TimelineChange>(`/api/fee-timeline/${id}${qs({ dryRun: dryRun || undefined })}`, { method: 'DELETE' }),
+	/** Terms the current timeline produces between `from` and `to`, without saving anything */
+	preview: (from: IsoDate, to: IsoDate) => get<PreviewTerm[]>(`/api/fee-timeline/preview${qs({ from, to })}`)
 };
 
-// ---------- payments (new shape; not on backend `self-service`) ----------
+// ---------- payments ----------
 
 export const payments = {
-	/** Newest first */
+	/** Not on backend: GET /api/payments takes no filters */
 	list: (q: PaymentQuery = {}) => get<Payment[]>(`/api/payments${qs(q as Query)}`),
+	/** GET /api/payments/student/{studentId} */
+	forStudent: (studentId: number) => get<Payment[]>(`/api/payments/student/${studentId}`),
 	get: (id: number) => get<Payment>(`/api/payments/${id}`),
+	/** 201. A REGULAR payment pays the oldest unpaid term of its course first. */
 	create: (body: PaymentCreateRequest) => post<Payment>('/api/payments', body),
 	/** 409 when already inactive */
 	deactivate: (id: number) => patch<Payment>(`/api/payments/${id}/deactivate`),
-	convertToCourseFee: (id: number, body: ConvertRequest) =>
+	/** ADDITIONAL → REGULAR; `courseName` needed when the payment has none */
+	convertToCourseFee: (id: number, body: ConvertRequest = {}) =>
 		post<Payment>(`/api/payments/${id}/convert-to-course-fee`, body)
 };
 
-// ---------- dues (not on backend `self-service`) ----------
+// ---------- dues (calculated, never edited) ----------
 
 export const dues = {
 	list: (q: DuesQuery = {}) => get<Due[]>(`/api/dues${qs(q as Query)}`),
-	/** Needs studentId or courseName */
-	summary: (q: { studentId?: number; courseName?: string }) => get<DuesSummary>(`/api/dues/summary${qs(q)}`),
+	summary: (studentId: number) => get<DuesSummary>(`/api/dues/summary${qs({ studentId })}`),
+	/** 202 {jobId}. STUDENT needs `id`. */
+	rebuild: (scope: RebuildScope, id?: number) => post<{ jobId: string }>(`/api/dues/rebuild${qs({ scope, id })}`),
+	rebuildJob: (jobId: string) => get<RebuildJob>(`/api/dues/rebuild/${enc(jobId)}`),
+	/** Not on backend */
 	aggregate: (groupBy: AggregateGroupBy, from?: IsoDate, to?: IsoDate) =>
 		get<AggregateRow[]>(`/api/dues/aggregate${qs({ groupBy, from, to })}`),
+	/** Not on backend */
+	courseSummary: (courseName: string) => get<DuesSummary>(`/api/dues/summary${qs({ courseName })}`),
+	/** Not on backend (replaced by ₹0 payments with a discount) */
 	waivers: (studentId: number) => get<Waiver[]>(`/api/dues/waivers${qs({ studentId })}`),
-	/** The session must be disjoined (409 otherwise) */
+	/** Not on backend */
 	createWaiver: (body: WaiverRequest) => post<Waiver>('/api/dues/waivers', body),
+	/** Not on backend */
 	removeWaiver: (id: number) => del(`/api/dues/waivers/${id}`),
-	/** 202 {jobId} */
-	rebuild: (scope: RebuildScope, id?: string | number, dryRun = false) =>
-		post<{ jobId: number }>(`/api/dues/rebuild${qs({ scope, id, dryRun })}`),
-	rebuildJob: (jobId: number) => get<RebuildJob>(`/api/dues/rebuild/${jobId}`),
+	/** Not on backend */
 	rebuildSchedule: () => get<RebuildSchedule>('/api/dues/rebuild/schedule'),
-	/** 404 once the legacy tables are gone */
+	/** Not on backend */
 	legacyComparison: () => get<LegacyComparison>('/api/dues/legacy-comparison')
 };
