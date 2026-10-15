@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
 	import type { Student, Payment } from '$lib';
+	import { formatDate } from '$lib/utils/format';
+	import { amountCleared, paymentPeriodLabel } from '$lib/utils/payments';
 	import { Printer, Receipt, CheckSquare, Square, X } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
@@ -44,15 +46,12 @@
 		if (selectedPaymentIds.size === 0) return;
 		selectedPaymentsForReceipt = activePayments.filter((p) => selectedPaymentIds.has(p.id));
 		const enriched = selectedPaymentsForReceipt.map((payment) => {
-			const d = getPaymentDetails(payment);
 			return {
 				id: payment.id,
 				date: payment.date,
 				label: payment.label,
-				courseName: d.courseName,
-				termYear: d.termYear,
-				termNumber: d.termNumber,
-				termName: payment.feeStructure?.termName,
+				courseName: payment.courseName,
+				period: payment.periodDate ? paymentPeriodLabel(payment, dues) : null,
 				amountPaid: payment.amountPaid,
 				discountAmount: payment.discountAmount,
 				discounts: payment.discounts
@@ -75,19 +74,6 @@
 
 	function printReceipt() {
 		if (iframeElement?.contentWindow) iframeElement.contentWindow.print();
-	}
-
-	function getPaymentDetails(payment: Payment) {
-		if (payment.feeStructure) {
-			const m = dues.find((d) => d.feeStructureId === payment.feeStructure?.id);
-			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || payment.courseName };
-		}
-		return { termYear: null, termNumber: null, courseName: payment.courseName };
-	}
-
-	function formatDate(s: string): string {
-		try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-		catch { return s; }
 	}
 
 	function getCombinedReceiptId(): string {
@@ -156,7 +142,6 @@
 			</thead>
 			<tbody>
 				{#each activePayments as payment}
-					{@const details = getPaymentDetails(payment)}
 					{@const isSelected = selectedPaymentIds.has(payment.id)}
 					<tr style:background={isSelected ? 'var(--accent-soft)' : undefined}>
 						<td>
@@ -168,19 +153,18 @@
 						</td>
 						<td>{payment.label || '—'}</td>
 						<td>
-							<div class="strong">{details.courseName || '—'}</div>
-							{#if details.termYear && details.termNumber}
-								<div class="muted" style="font-size: 11px;">Year {details.termYear} · Term {details.termNumber}</div>
+							<div class="strong">{payment.courseName || '—'}</div>
+							{#if payment.periodDate}
+								<div class="muted" style="font-size: 11px;">{paymentPeriodLabel(payment, dues)}</div>
 							{/if}
 						</td>
 						<td>
-							{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
-							{:else if payment.paymentType === 'ADDITIONAL'}<Badge kind="accent">Additional</Badge>
-							{:else}<Badge kind="neutral">{payment.paymentType}</Badge>{/if}
+							{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Course fee</Badge>
+							{:else}<Badge kind="accent">Additional</Badge>{/if}
 						</td>
 						<td class="num"><Money value={payment.amountPaid} /></td>
 						<td class="num"><Money value={payment.discountAmount || 0} /></td>
-						<td class="num strong"><Money value={payment.amountPaid + (payment.discountAmount || 0)} /></td>
+						<td class="num strong"><Money value={amountCleared(payment)} /></td>
 					</tr>
 				{/each}
 			</tbody>

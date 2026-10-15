@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
-	import { StudentSessionService, type Student, type StudentSession } from '$lib';
+	import { api, type Student, type StudentSession } from '$lib';
+	import { paymentPeriodLabel } from '$lib/utils/payments';
 	import {
 		Calendar,
 		UserPlus,
 		LogIn,
 		LogOut,
 		IndianRupee,
-		Trash2,
+		ArrowRightLeft,
 		Clock,
 		AlertCircle
 	} from 'lucide-svelte';
@@ -19,7 +20,7 @@
 	interface TimelineEvent {
 		id: string;
 		date: string;
-		type: 'admission' | 'session-join' | 'session-disjoin' | 'payment' | 'payment-deactivation';
+		type: 'admission' | 'session-join' | 'session-disjoin' | 'payment' | 'payment-conversion';
 		title: string;
 		description: string;
 		icon: any;
@@ -54,7 +55,7 @@
 		error = null;
 		try {
 			const [sessionsData] = await Promise.all([
-				StudentSessionService.getAllSessionsByStudent(studentId),
+				api.sessions.list({ studentId }),
 				currentStudentStore.fetchPayments(studentId, true),
 				currentStudentStore.fetchDues(studentId, true)
 			]);
@@ -115,30 +116,29 @@
 		});
 
 		payments.forEach((payment) => {
-			if (payment.createdAt) {
-				const pd = getPaymentDetails(payment);
-				const termInfo = pd.termYear && pd.termNumber ? ` · Y${pd.termYear} T${pd.termNumber}` : '';
+			{
+				const periodInfo = payment.periodDate ? ` · ${paymentPeriodLabel(payment, dues)}` : '';
 				events.push({
 					id: `payment-${payment.id}`,
 					date: payment.date,
 					type: 'payment',
-					title: `Payment: ${payment.label || 'Fee payment'}`,
-					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${pd.courseName || 'fees'}${termInfo}`,
+					title: `Payment: ${payment.label || 'Fee payment'}${payment.isActive ? '' : ' (deactivated)'}`,
+					description: `₹${payment.amountPaid.toLocaleString('en-IN')} paid for ${payment.courseName || 'fees'}${periodInfo}`,
 					icon: IndianRupee,
 					nodeColor: payment.isActive ? 'var(--info)' : 'var(--fg-muted)',
 					nodeBg: payment.isActive ? 'var(--info-soft)' : 'var(--surface-2)',
 					data: payment
 				});
-				if (!payment.isActive && payment.updatedAt && payment.updatedAt !== payment.createdAt) {
+				if (payment.convertedAt) {
 					events.push({
-						id: `payment-deactivation-${payment.id}`,
-						date: payment.updatedAt,
-						type: 'payment-deactivation',
-						title: `Payment deactivated: ${payment.label || 'Fee payment'}`,
-						description: `Payment of ₹${payment.amountPaid.toLocaleString('en-IN')} was deactivated`,
-						icon: Trash2,
-						nodeColor: 'var(--danger)',
-						nodeBg: 'var(--danger-soft)',
+						id: `payment-conversion-${payment.id}`,
+						date: payment.convertedAt,
+						type: 'payment-conversion',
+						title: `Converted to course fee: ${payment.label || 'payment'}`,
+						description: `By ${payment.convertedBy ?? 'unknown'} · now applied to ${payment.courseName}${periodInfo}`,
+						icon: ArrowRightLeft,
+						nodeColor: 'var(--accent)',
+						nodeBg: 'var(--accent-soft)',
 						data: payment
 					});
 				}
@@ -163,14 +163,6 @@
 			groups[key].events.push(e);
 		}
 		return Object.values(groups);
-	}
-
-	function getPaymentDetails(p: any) {
-		if (p.feeStructure) {
-			const m = dues.find((d) => d.feeStructureId === p.feeStructure?.id);
-			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || p.courseName };
-		}
-		return { termYear: null, termNumber: null, courseName: p.courseName };
 	}
 
 	function getDay(d: string): string {
@@ -238,7 +230,7 @@
 										{:else if event.type === 'session-join'}Enrolled
 										{:else if event.type === 'session-disjoin'}Completed
 										{:else if event.type === 'payment'}{event.data?.paymentType === 'ADDITIONAL' ? 'Additional' : 'Payment'}
-										{:else}Deactivated{/if}
+										{:else}Converted{/if}
 									</span>
 									<span class="tl-time">{formatTime(event.date)}</span>
 								</div>
@@ -273,8 +265,8 @@
 					</div>
 					<div class="divider-s" style="margin: 0;"></div>
 					<div>
-						<div class="kpi-label">Deactivations</div>
-						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'payment-deactivation').length}</div>
+						<div class="kpi-label">Conversions</div>
+						<div style="font-family: var(--font-serif); font-size: 24px;">{timelineEvents.filter((e) => e.type === 'payment-conversion').length}</div>
 					</div>
 				</div>
 			</div>

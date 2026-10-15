@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, afterNavigate } from '$app/navigation';
 	import {
 		Users,
 		BookOpen,
@@ -14,9 +14,16 @@
 		Palette as PaletteIcon,
 		ChevronDown,
 		Star,
-		History
+		History,
+		ShieldCheck,
+		UserCog,
+		RefreshCcw
 	} from 'lucide-svelte';
-	import { authStore } from '$lib/stores/authStore';
+	import { authStore, canAccess } from '$lib/stores/authStore';
+	import type { AccessLevel, RoutePath } from '$lib/api/types';
+	import { features } from '$lib/config/features';
+	import NoPermission from '$lib/components/NoPermission.svelte';
+	import NotAvailable from '$lib/components/NotAvailable.svelte';
 	import { paletteStore, type Palette } from '$lib/stores/paletteStore';
 	import {
 		recentsStore,
@@ -71,15 +78,59 @@
 		favoritesStore.init();
 		sidebarCollapsedStore.init();
 		document.addEventListener('click', handleClickOutside);
-		return () => document.removeEventListener('click', handleClickOutside);
+		// Role changes show in /users/me before they reach the token, so re-read it periodically
+		// (the store refreshes the token when the routes differ)
+		const meTimer = setInterval(() => authStore.loadMe(true), ME_REFRESH_MS);
+		return () => {
+			document.removeEventListener('click', handleClickOutside);
+			clearInterval(meTimer);
+		};
 	});
 
-	const NAV = [
-		{ href: '/students', label: 'Students', icon: Users },
-		{ href: '/courses', label: 'Courses', icon: BookOpen },
-		{ href: '/dues', label: 'Dues', icon: IndianRupee },
-		{ href: '/payments', label: 'Payments', icon: Banknote }
+	const ME_REFRESH_MS = 60_000;
+
+	// ...and after each navigation (throttled in the store)
+	afterNavigate(() => authStore.loadMe());
+
+	/** `legacy`: needs endpoints that aren't on the backend yet; shown only with `features.legacyFeeModel`. */
+	type NavItem = { href: string; label: string; icon: typeof Users; route: RoutePath; level?: AccessLevel; legacy?: boolean };
+
+	const NAV: NavItem[] = [
+		{ href: '/students', label: 'Students', icon: Users, route: '/api/students/**' },
+		{ href: '/courses', label: 'Courses', icon: BookOpen, route: '/api/courses/**' },
+		{ href: '/dues', label: 'Dues', icon: IndianRupee, route: '/api/dues/**', legacy: true },
+		{ href: '/payments', label: 'Payments', icon: Banknote, route: '/api/payments/**', legacy: true }
 	];
+
+	const ADMIN_NAV: NavItem[] = [
+		{ href: '/admin/users', label: 'Users', icon: UserCog, route: '/api/users/**' },
+		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck, route: '/api/roles/**' },
+		{ href: '/admin/dues-rebuild', label: 'Dues rebuild', icon: RefreshCcw, route: '/api/dues/**', legacy: true }
+	];
+
+	type Guard = { re: RegExp; route: RoutePath; what: string; legacy?: boolean };
+
+	// Which route each screen needs to read (most specific prefix first)
+	const GUARDS: Guard[] = [
+		{ re: /^\/students\/[^/]+\/sessions/, route: '/api/student-sessions/**', what: 'sessions' },
+		{ re: /^\/students\/[^/]+\/dues/, route: '/api/dues/**', what: 'dues', legacy: true },
+		{ re: /^\/students\/[^/]+\/(payments|manage-payments|receipts)/, route: '/api/payments/**', what: 'payments', legacy: true },
+		{ re: /^\/students\/[^/]+\/timeline/, route: '/api/payments/**', what: 'the fee timeline', legacy: true },
+		{ re: /^\/students\/add/, route: '/api/students/**', what: 'adding students' },
+		{ re: /^\/students/, route: '/api/students/**', what: 'students' },
+		{ re: /^\/courses/, route: '/api/courses/**', what: 'courses' },
+		{ re: /^\/dues/, route: '/api/dues/**', what: 'dues', legacy: true },
+		{ re: /^\/payments/, route: '/api/payments/**', what: 'payments', legacy: true },
+		{ re: /^\/admin\/dues-rebuild/, route: '/api/dues/**', what: 'dues recalculation', legacy: true },
+		{ re: /^\/admin\/roles/, route: '/api/roles/**', what: 'roles' },
+		{ re: /^\/admin/, route: '/api/users/**', what: 'users' }
+	];
+	let guard = $derived(GUARDS.find((g) => g.re.test($page.url.pathname)));
+	let unavailable = $derived(!!guard?.legacy && !features.legacyFeeModel);
+	let allowed = $derived(!guard || !$authStore.user || $canAccess(guard.route));
+
+	let nav = $derived(NAV.filter((i) => (!i.legacy || features.legacyFeeModel) && $canAccess(i.route, i.level)));
+	let adminNav = $derived(ADMIN_NAV.filter((i) => (!i.legacy || features.legacyFeeModel) && $canAccess(i.route, i.level)));
 
 	function pageCrumbs(path: string) {
 		const parts = path.split('/').filter(Boolean);
@@ -127,13 +178,25 @@
 
 		<nav class="sb-section" style="display:flex; flex-direction:column; gap:2px;">
 			{#if !$sidebarCollapsedStore}<div class="sb-label">Workspace</div>{/if}
-			{#each NAV as item}
+			{#each nav as item}
 				<a class="sb-link" class:active={isActive(item.href)} href={item.href}>
 					<item.icon size={16} strokeWidth={1.6} />
 					<span>{item.label}</span>
 				</a>
 			{/each}
 		</nav>
+
+		{#if adminNav.length > 0}
+			<nav class="sb-section" style="display:flex; flex-direction:column; gap:2px;">
+				{#if !$sidebarCollapsedStore}<div class="sb-label">Admin</div>{/if}
+				{#each adminNav as item}
+					<a class="sb-link" class:active={isActive(item.href)} href={item.href}>
+						<item.icon size={16} strokeWidth={1.6} />
+						<span>{item.label}</span>
+					</a>
+				{/each}
+			</nav>
+		{/if}
 
 		{#if !$sidebarCollapsedStore && $favoritesStore.length > 0}
 			<div class="sb-divider"></div>
@@ -176,7 +239,7 @@
 					<span class="sb-avatar">{userInitial}</span>
 					{#if !$sidebarCollapsedStore}
 						<span class="sb-user-info">
-							<span class="sb-user-name">Owner</span>
+							<span class="sb-user-name">{($authStore.user?.roles ?? []).map((r) => r.name).join(', ') || 'No role'}</span>
 							<span class="sb-user-email">{$authStore.user?.email || 'user@school'}</span>
 						</span>
 						<ChevronDown size={14} strokeWidth={1.6} style="color: var(--fg-muted);" />
@@ -212,6 +275,7 @@
 			</div>
 
 			<div class="topbar-actions">
+				{#if $canAccess('/api/students/**')}
 				<div class="search-box" style="width: 280px;">
 					<Search size={14} strokeWidth={1.6} />
 					<input
@@ -222,6 +286,7 @@
 					/>
 					<span class="kbd">↵</span>
 				</div>
+				{/if}
 
 				<div style="position: relative;">
 					<button class="btn-s btn-secondary-s btn-icon-s palette-trigger" onclick={() => (paletteOpen = !paletteOpen)} aria-label="Change palette">
@@ -249,7 +314,13 @@
 		</header>
 
 		<div style="flex: 1; min-width: 0;">
-			{@render children?.()}
+			{#if unavailable}
+				<NotAvailable what={guard ? guard.what[0].toUpperCase() + guard.what.slice(1) : undefined} />
+			{:else if allowed}
+				{@render children?.()}
+			{:else}
+				<NoPermission what={guard?.what} />
+			{/if}
 		</div>
 	</div>
 </div>

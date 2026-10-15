@@ -17,12 +17,13 @@
 		Phone,
 		Hash
 	} from 'lucide-svelte';
-	import { currentStudentStore, StudentService } from '$lib';
+	import { currentStudentStore, api, errorMessage, canAccess, ApiError } from '$lib';
 	import { recentsStore, favoritesStore } from '$lib/stores/recentsStore';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import type { LayoutData } from './$types';
-	import type { Student } from '$lib/types/student';
+	import type { Student, AccessLevel, RoutePath } from '$lib/api/types';
+	import { features } from '$lib/config/features';
 
 	export let data: LayoutData;
 
@@ -41,27 +42,20 @@
 		}
 		try {
 			loading = true;
-			const response = await StudentService.advancedSearchStudents({
-				admissionNo: data.admissionNo,
-				size: 1
-			});
-			if (!response.content || response.content.length === 0) {
-				error = `Student with admission number ${data.admissionNo} not found`;
-				loading = false;
-				return;
-			}
-			student = response.content[0];
+			student = await api.students.get(Number(data.admissionNo));
 			currentStudentStore.setStudent(student);
 			recentsStore.push({
-				id: String(student.admissionNo || student.admissionId),
+				id: String(student.admissionNo),
 				name: student.studentName || 'Unknown',
 				admissionNo: student.admissionNo ? String(student.admissionNo) : undefined
 			});
-			isFavorite = favoritesStore.isFav(String(student.admissionNo || student.admissionId));
+			isFavorite = favoritesStore.isFav(String(student.admissionNo));
 			loading = false;
 		} catch (err) {
-			console.error('Error loading student:', err);
-			error = 'Failed to load student data';
+			error =
+				err instanceof ApiError && err.isNotFound
+					? `Student with admission number ${data.admissionNo} not found`
+					: errorMessage(err, 'Failed to load student data');
 			loading = false;
 		}
 	});
@@ -69,7 +63,7 @@
 	function toggleFav() {
 		if (!student) return;
 		isFavorite = favoritesStore.toggle({
-			id: String(student.admissionNo || student.admissionId),
+			id: String(student.admissionNo),
 			name: student.studentName || 'Unknown',
 			admissionNo: student.admissionNo ? String(student.admissionNo) : undefined
 		});
@@ -78,18 +72,19 @@
 	$: studentId = $page.params.id;
 	$: currentPath = $page.url.pathname;
 
-	const navigationItems = [
-		{ path: '', label: 'Overview', icon: User },
-		{ path: '/edit', label: 'Edit', icon: Edit },
-		{ path: '/sessions', label: 'Sessions', icon: BookOpen },
-		{ path: '/payments', label: 'Payment history', icon: Banknote },
-		{ path: '/manage-payments', label: 'Manage payments', icon: Settings },
-		{ path: '/receipts', label: 'Receipts', icon: Receipt },
-		{ path: '/timeline', label: 'Timeline', icon: Clock },
-		{ path: '/dues', label: 'Pay fees', icon: CreditCard }
+	// `legacy`: needs endpoints that aren't on the backend yet (features.legacyFeeModel)
+	const navigationItems: { path: string; label: string; icon: typeof User; route: RoutePath; level?: AccessLevel; legacy?: boolean }[] = [
+		{ path: '', label: 'Overview', icon: User, route: '/api/students/**' },
+		{ path: '/edit', label: 'Edit', icon: Edit, route: '/api/students/**', level: 'write' },
+		{ path: '/sessions', label: 'Sessions', icon: BookOpen, route: '/api/student-sessions/**' },
+		{ path: '/payments', label: 'Payment history', icon: Banknote, route: '/api/payments/**', legacy: true },
+		{ path: '/manage-payments', label: 'Manage payments', icon: Settings, route: '/api/payments/**', level: 'write', legacy: true },
+		{ path: '/receipts', label: 'Receipts', icon: Receipt, route: '/api/payments/**', legacy: true },
+		{ path: '/timeline', label: 'Timeline', icon: Clock, route: '/api/payments/**', legacy: true },
+		{ path: '/dues', label: 'Dues & fees', icon: CreditCard, route: '/api/dues/**', legacy: true }
 	];
 
-	$: activeNavItems = navigationItems.map((item) => ({
+	$: activeNavItems = navigationItems.filter((item) => (!item.legacy || features.legacyFeeModel) && $canAccess(item.route, item.level)).map((item) => ({
 		...item,
 		active:
 			currentPath === `/students/${studentId}${item.path}` ||
@@ -168,15 +163,21 @@
 					{/if}
 				</div>
 				<div class="hero-actions" style="margin-top: 10px;">
-					<button class="btn-s btn-primary-s btn-sm-s" on:click={() => navigateToTab('/dues')}>
-						<CreditCard size={14} strokeWidth={1.6} /> Pay fees
-					</button>
-					<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/receipts')}>
-						<Receipt size={14} strokeWidth={1.6} /> Receipts
-					</button>
-					<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/edit')}>
-						<Edit size={14} strokeWidth={1.6} /> Edit
-					</button>
+					{#if features.legacyFeeModel && $canAccess('/api/dues/**') && $canAccess('/api/payments/**', 'write')}
+						<button class="btn-s btn-primary-s btn-sm-s" on:click={() => navigateToTab('/dues')}>
+							<CreditCard size={14} strokeWidth={1.6} /> Pay fees
+						</button>
+					{/if}
+					{#if features.legacyFeeModel && $canAccess('/api/payments/**')}
+						<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/receipts')}>
+							<Receipt size={14} strokeWidth={1.6} /> Receipts
+						</button>
+					{/if}
+					{#if $canAccess('/api/students/**', 'write')}
+						<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => navigateToTab('/edit')}>
+							<Edit size={14} strokeWidth={1.6} /> Edit
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>

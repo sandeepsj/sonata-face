@@ -1,25 +1,31 @@
 <script lang="ts">
 	import Badge from './Badge.svelte';
 
-	export let status: string = '';
+	let { status = '' }: { status?: string | null } = $props();
 
-	function classify(s: string): { kind: 'neutral' | 'ok' | 'warn' | 'danger' | 'info' | 'accent'; label: string } {
+	type Kind = 'neutral' | 'ok' | 'warn' | 'danger' | 'info' | 'accent';
+
+	function classify(s: string): { kind: Kind; label: string } {
 		const u = (s || '').toUpperCase();
 		switch (u) {
 			case 'PAID':
+				return { kind: 'ok', label: 'Paid' };
 			case 'ACTIVE':
-				return { kind: 'ok', label: u === 'ACTIVE' ? 'Active' : 'Paid' };
+				return { kind: 'ok', label: 'Active' };
 			case 'DUE':
-			case 'OVERDUE':
-				return { kind: 'danger', label: u.charAt(0) + u.slice(1).toLowerCase() };
+				return { kind: 'danger', label: 'Due' };
 			case 'PARTIALLY_PAID':
-			case 'PARTIAL':
 				return { kind: 'warn', label: 'Partial' };
-			case 'CANCELLED':
+			case 'OVERPAID':
+				return { kind: 'info', label: 'Overpaid' };
+			case 'WAIVED':
+				return { kind: 'neutral', label: 'Waived' };
+			case 'CLOSED':
+				return { kind: 'neutral', label: 'Closed' };
 			case 'INACTIVE':
-				return { kind: 'neutral', label: u.charAt(0) + u.slice(1).toLowerCase() };
+				return { kind: 'neutral', label: 'Inactive' };
 			case 'REGULAR':
-				return { kind: 'info', label: 'Regular' };
+				return { kind: 'info', label: 'Course fee' };
 			case 'ADDITIONAL':
 				return { kind: 'accent', label: 'Additional' };
 			default:
@@ -27,7 +33,7 @@
 		}
 	}
 
-	$: meta = classify(status);
+	let meta = $derived(classify(status ?? ''));
 </script>
 
 <Badge kind={meta.kind}>{meta.label}</Badge>

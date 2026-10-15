@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { PaymentService, type DateRangeParams } from '$lib/api/paymentService';
-	import type { Payment } from '$lib/types/payment';
+	import { api, errorMessage } from '$lib';
+	import type { Payment, PaymentType } from '$lib/api/types';
+	import { formatDate as formatPeriodDate } from '$lib/utils/format';
 	import { Calendar, Filter, Download, Printer, AlertCircle } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
@@ -12,7 +13,10 @@
 
 	let selectedCourse: string | null = null;
 	let selectedType: string | null = null;
-	let selectedTerm: number | null = null;
+	/** REGULAR payments for the billing period containing this date */
+	let periodDate = '';
+	let studentId = '';
+	let includeInactive = false;
 
 	let payments: Payment[] = [];
 	let loading = false;
@@ -26,7 +30,7 @@
 	let totalCollected = 0;
 	let totalDiscount = 0;
 	let totalFeeCleared = 0;
-	type GroupBy = 'course' | 'month' | 'type' | 'label' | 'term' | 'none';
+	type GroupBy = 'course' | 'month' | 'type' | 'label' | 'period' | 'none';
 	type SummaryRow = { key: string; label: string; sub?: string; amount: number; count: number };
 
 	let summaryGroupBy: GroupBy = 'course';
@@ -69,16 +73,15 @@
 					break;
 				case 'type':
 					key = p.paymentType;
-					label = p.paymentType === 'REGULAR' ? 'Term payment' : p.paymentType === 'ADDITIONAL' ? 'Additional' : 'Other';
+					label = p.paymentType === 'REGULAR' ? 'Course fee' : 'Additional';
 					break;
 				case 'label':
 					key = p.label || 'No label';
 					label = key;
 					break;
-				case 'term':
-					key = `${p.feeStructure?.year ?? '—'}-T${p.feeStructure?.termName ?? '—'}`;
-					label = p.feeStructure?.termName ? `Term ${p.feeStructure.termName}` : 'No term';
-					sub = p.feeStructure?.year ? String(p.feeStructure.year) : undefined;
+				case 'period':
+					key = p.periodDate ? p.periodDate.slice(0, 7) : 'zz';
+					label = p.periodDate ? `Period from ${MONTHS[Number(p.periodDate.slice(5, 7)) - 1]} ${p.periodDate.slice(0, 4)}` : 'No period (additional)';
 					break;
 			}
 			const ex = map.get(key) ?? { key, label, sub, amount: 0, count: 0 };
@@ -125,7 +128,7 @@
 		month: 'Month',
 		type: 'Type',
 		label: 'Label',
-		term: 'Term',
+		period: 'Period',
 		none: 'Total'
 	};
 
@@ -144,6 +147,7 @@
 	}
 
 	onMount(() => {
+		api.courses.list().then((cs) => (courses = cs.map((c) => c.name).sort())).catch(() => {});
 		// Default to the current year so the summary is meaningful out of the gate.
 		const now = new Date();
 		const firstDay = new Date(now.getFullYear(), 0, 1);
@@ -160,29 +164,24 @@
 		return `${y}-${m}-${day}`;
 	}
 
-	function toISOString(s: string, isEnd = false): string {
-		const [y, m, d] = s.split('-');
-		return isEnd ? `${y}-${m}-${d}T23:59:59` : `${y}-${m}-${d}T00:00:00`;
-	}
 
 	async function loadPayments() {
 		if (!startDate || !endDate) return;
 		loading = true;
 		error = null;
 		try {
-			const params: DateRangeParams = {
-				startDate: toISOString(startDate),
-				endDate: toISOString(endDate, true)
-			};
-			if (selectedCourse) payments = await PaymentService.getPaymentsByCourse(selectedCourse, params);
-			else if (selectedType) payments = await PaymentService.getPaymentsByType(selectedType, params);
-			else if (selectedTerm) payments = await PaymentService.getPaymentsByTerm(selectedTerm, params);
-			else payments = await PaymentService.getPaymentsByDateRange(params);
-
-			courses = [...new Set(payments.map((p) => p.courseName).filter(Boolean) as string[])];
+			payments = await api.payments.list({
+				from: startDate,
+				to: endDate,
+				courseName: selectedCourse ?? undefined,
+				type: (selectedType as PaymentType | null) ?? undefined,
+				periodDate: periodDate || undefined,
+				studentId: studentId.trim() ? Number(studentId.trim()) : undefined,
+				active: includeInactive ? undefined : true
+			});
 			calculateAggregations();
 		} catch (err) {
-			error = 'Failed to load payments. Please try again.';
+			error = errorMessage(err, 'Failed to load payments. Please try again.');
 		} finally {
 			loading = false;
 		}
@@ -205,7 +204,9 @@
 	function clearFilters() {
 		selectedCourse = null;
 		selectedType = null;
-		selectedTerm = null;
+		periodDate = '';
+		studentId = '';
+		includeInactive = false;
 		loadPayments();
 	}
 
@@ -236,22 +237,23 @@
 	}
 
 	function downloadCSV() {
-		const headers = ['Date','Student Name','Student ID','Course','Year','Term','Type','Student Remarks','Payment Remarks','Fee Paid','Discount','Total'];
+		const headers = ['Receipt','Date','Student Name','Student ID','Course','Period','Type','Label','Payment Remarks','Active','Fee Paid','Discount','Total'];
 		const rows = payments.map((p) => [
+			p.id,
 			formatDateShort(p.date),
-			p.student.studentName || 'N/A',
-			p.student.admissionNo || 'N/A',
+			p.studentName || 'N/A',
+			p.studentId,
 			p.courseName || 'N/A',
-			p.feeStructure?.year || 'N/A',
-			p.feeStructure?.term || 'N/A',
-			p.paymentType === 'REGULAR' ? 'Regular' : 'Additional',
-			p.student.remarks || '-',
+			p.periodDate || '-',
+			p.paymentType === 'REGULAR' ? 'Course fee' : 'Additional',
+			p.label || '-',
 			p.remarks || '-',
+			p.isActive ? 'yes' : 'no',
 			p.amountPaid,
 			p.discountAmount || 0,
 			p.amountPaid + (p.discountAmount || 0)
 		]);
-		const totalRow = ['','','','','','','','','Total:', payments.reduce((s, p) => s + p.amountPaid, 0), payments.reduce((s, p) => s + (p.discountAmount || 0), 0), totalAmount];
+		const totalRow = ['','','','','','','','','','Total:', payments.reduce((s, p) => s + p.amountPaid, 0), payments.reduce((s, p) => s + (p.discountAmount || 0), 0), totalAmount];
 		const csv = [
 			headers.join(','),
 			...rows.map((r) => r.map((cell) => {
@@ -334,15 +336,26 @@
 						bind:value={selectedType}
 						options={[
 							{ value: null, label: 'All types' },
-							{ value: 'REGULAR', label: 'Regular' },
+							{ value: 'REGULAR', label: 'Course fee' },
 							{ value: 'ADDITIONAL', label: 'Additional' }
 						]}
 						onChange={loadPayments}
 						ariaLabel="Type filter"
 					/>
 				</div>
+				<div class="field">
+					<label for="periodDate">Billing period containing</label>
+					<input id="periodDate" type="date" class="input-s" bind:value={periodDate} onchange={loadPayments} title="Course-fee payments for the billing period that contains this date" />
+				</div>
+				<div class="field">
+					<label for="studentFilter">Admission #</label>
+					<input id="studentFilter" class="input-s" inputmode="numeric" placeholder="Any student" bind:value={studentId} onchange={loadPayments} />
+				</div>
+				<label class="field" style="flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; align-self: end;">
+					<input type="checkbox" bind:checked={includeInactive} onchange={loadPayments} /> Include deactivated
+				</label>
 			</div>
-			{#if selectedCourse || selectedType || selectedTerm}
+			{#if selectedCourse || selectedType || periodDate || studentId || includeInactive}
 				<div style="display: flex; justify-content: flex-end; margin-top: 12px;">
 					<button class="btn-s btn-ghost-s btn-sm-s" onclick={clearFilters}>Clear filters</button>
 				</div>
@@ -385,7 +398,7 @@
 					<button class:active={summaryGroupBy === 'month'} onclick={() => setGroupBy('month')}>Month</button>
 					<button class:active={summaryGroupBy === 'type'} onclick={() => setGroupBy('type')}>Type</button>
 					<button class:active={summaryGroupBy === 'label'} onclick={() => setGroupBy('label')}>Label</button>
-					<button class:active={summaryGroupBy === 'term'} onclick={() => setGroupBy('term')}>Term</button>
+					<button class:active={summaryGroupBy === 'period'} onclick={() => setGroupBy('period')}>Period</button>
 					<button class:active={summaryGroupBy === 'none'} onclick={() => setGroupBy('none')}>Total</button>
 				</div>
 			</div>
@@ -438,10 +451,9 @@
 								<th>Date</th>
 								<th>Student</th>
 								<th>Course</th>
-								<th>Year</th>
-								<th>Term</th>
+								<th>Period from</th>
 								<th>Type</th>
-								<th>Student remarks</th>
+								<th>Label</th>
 								<th>Payment remarks</th>
 								<th class="num">Paid</th>
 								<th class="num">Discount</th>
@@ -452,27 +464,22 @@
 							{#each payments as p}
 								<tr>
 									<td>
-										{#if p.student?.admissionNo}
-											<a href="/students/{p.student.admissionNo}" target="_blank" rel="noopener noreferrer" class="link-id">{p.id}</a>
-										{:else}
-											<span class="id">{p.id}</span>
-										{/if}
+										<a href="/students/{p.studentId}" target="_blank" rel="noopener noreferrer" class="link-id">{p.id}</a>
 									</td>
 									<td class="muted" style="white-space: nowrap;">{formatDateShort(p.date)}</td>
 									<td>
-										<div class="strong">{p.student.studentName || '—'}</div>
-										{#if p.student.admissionNo}
-											<a href="/students/{p.student.admissionNo}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); font-family: var(--font-mono); font-size: 11px;">{p.student.admissionNo}</a>
-										{/if}
+										<div class="strong">{p.studentName || '—'}</div>
+										<a href="/students/{p.studentId}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); font-family: var(--font-mono); font-size: 11px;">{p.studentId}</a>
 									</td>
 									<td>{#if p.courseName}<Badge kind="neutral">{p.courseName}</Badge>{:else}<span class="muted">—</span>{/if}</td>
-									<td class="muted">{p.feeStructure?.year || '—'}</td>
-									<td class="muted">{p.feeStructure?.term || '—'}</td>
+									<td class="muted" style="white-space: nowrap;">{p.periodDate ? formatPeriodDate(p.periodDate) : '—'}</td>
 									<td>
-										{#if p.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
+										{#if p.paymentType === 'REGULAR'}<Badge kind="info">Course fee</Badge>
 										{:else}<Badge kind="accent">Additional</Badge>{/if}
+										{#if !p.isActive}<Badge kind="neutral">Deactivated</Badge>{/if}
+										{#if p.originalType}<div class="muted" style="font-size: 10.5px;" title="Converted by {p.convertedBy}">converted</div>{/if}
 									</td>
-									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.student.remarks || '—'}</td>
+									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.label || '—'}</td>
 									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.remarks || '—'}</td>
 									<td class="num"><Money value={p.amountPaid} /></td>
 									<td class="num"><Money value={p.discountAmount || 0} /></td>
@@ -502,7 +509,7 @@
 				<div class="print-title">Payments report · {formatRangeLabel(startDate, endDate)}</div>
 				<div class="print-meta">
 					{#if selectedCourse}Course: {selectedCourse}{:else}All courses{/if}
-					· {selectedType ? (selectedType === 'REGULAR' ? 'Regular' : 'Additional') : 'All types'}
+					· {selectedType ? (selectedType === 'REGULAR' ? 'Course fees' : 'Additional') : 'All types'}
 					· Generated {todayStr()}
 				</div>
 			</div>
@@ -547,8 +554,7 @@
 						<th>Date</th>
 						<th>Student</th>
 						<th>Course</th>
-						<th>Year</th>
-						<th>Term</th>
+						<th>Period from</th>
 						<th>Type</th>
 						<th class="num">Paid</th>
 						<th class="num">Discount</th>
@@ -560,11 +566,10 @@
 						<tr>
 							<td>{p.id}</td>
 							<td>{formatDateShort(p.date)}</td>
-							<td>{p.student?.studentName ?? '—'}</td>
+							<td>{p.studentName ?? '—'}</td>
 							<td>{p.courseName ?? '—'}</td>
-							<td>{p.feeStructure?.year ?? '—'}</td>
-							<td>{p.feeStructure?.term ?? '—'}</td>
-							<td>{p.paymentType === 'REGULAR' ? 'Regular' : 'Additional'}</td>
+							<td>{p.periodDate ? formatPeriodDate(p.periodDate) : '—'}</td>
+							<td>{p.paymentType === 'REGULAR' ? 'Course fee' : 'Additional'}</td>
 							<td class="num">₹{p.amountPaid.toLocaleString('en-IN')}</td>
 							<td class="num">₹{(p.discountAmount ?? 0).toLocaleString('en-IN')}</td>
 							<td class="num">₹{(p.amountPaid + (p.discountAmount ?? 0)).toLocaleString('en-IN')}</td>

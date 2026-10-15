@@ -1,175 +1,125 @@
 <script lang="ts">
-	import {
-		FeeStructureService,
-		feeStructureStore,
-		StudentSessionService,
-		type Course,
-		type FeeStructure,
-		type StudentSession
-	} from '$lib';
-	import { Users, Pencil, MoreHorizontal, Plus, TrendingUp, BookOpen, Printer } from 'lucide-svelte';
+	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { Users, Plus, Lock, LockOpen } from 'lucide-svelte';
+	import { api, canAccess, errorMessage, fieldErrors, toast } from '$lib';
+	import type { Course, StudentSession } from '$lib/api/types';
+	import { formatDate } from '$lib/utils/format';
 	import Badge from '$lib/components/Badge.svelte';
-	import Select from '$lib/components/Select.svelte';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
+	import FeeStructuresTab from './FeeStructuresTab.svelte';
+	import FeeTimelineTab from './FeeTimelineTab.svelte';
+	import CourseStudentsTab from './CourseStudentsTab.svelte';
+	import { features } from '$lib/config/features';
 
-	type CourseGroup = { course: Course; structures: FeeStructure[]; yearlyFee: number; termsPerYear: number };
-	type DetailTab = 'schedule' | 'students' | 'policy' | 'analytics';
+	// Course status, close/reopen and the fee tabs need endpoints that aren't on backend `self-service`
+	const legacy = features.legacyFeeModel;
 
-	let feeStructures: FeeStructure[] = [];
-	let loading = true;
-	let error = '';
+	type StatusFilter = 'ACTIVE' | 'CLOSED' | 'ALL';
+	type DetailTab = 'structures' | 'timeline' | 'students';
 
-	let selectedCourseId: string | null = null;
-	let activeTab: DetailTab = 'schedule';
+	let courses: Course[] = $state([]);
+	let activeSessions: StudentSession[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
+	let statusFilter = $state<StatusFilter>(legacy ? 'ACTIVE' : 'ALL');
+	let tab = $state<DetailTab>('timeline');
 
-	let detailSessions: StudentSession[] = [];
-	let loadingSessions = false;
+	// add course
+	let newName = $state('');
+	let adding = $state(false);
+	let addError = $state('');
 
-	let courseStudentCounts = new Map<string, number>();
+	let busy = $state(false);
 
-	const currentYear = new Date().getFullYear();
-	const availableYears = Array.from({ length: 12 }, (_, i) => currentYear + 1 - i);
-	let selectedYear: number = currentYear;
+	let canWriteCourse = $derived($canAccess('/api/courses/**', 'write'));
+	let canReadFees = $derived(legacy && $canAccess('/api/fee-structures/**'));
+	let canReadSessions = $derived($canAccess('/api/student-sessions/**'));
 
-	$: courseGroups = buildCourseGroups(feeStructures);
-	$: selectedGroup = courseGroups.find((g) => g.course.id === selectedCourseId) ?? courseGroups[0] ?? null;
-	$: termFee = selectedGroup ? (selectedGroup.structures[0]?.amount ?? 0) : 0;
-	$: annualFee = selectedGroup?.yearlyFee ?? 0;
-	$: stats = computeStats(courseGroups, courseStudentCounts);
+	let shown = $derived(statusFilter === 'ALL' ? courses : courses.filter((c) => c.status === statusFilter));
+	let selectedName = $derived($page.url.searchParams.get('course'));
+	let selected = $derived(courses.find((c) => c.name === selectedName) ?? shown[0] ?? null);
 
-	function buildCourseGroups(structures: FeeStructure[]): CourseGroup[] {
-		const map = new Map<string, FeeStructure[]>();
-		for (const fs of structures) {
-			if (!map.has(fs.course.id)) map.set(fs.course.id, []);
-			map.get(fs.course.id)!.push(fs);
-		}
-		const groups: CourseGroup[] = [];
-		for (const [, items] of map) {
-			items.sort((a, b) => a.term - b.term);
-			const course = items[0].course;
-			groups.push({
-				course,
-				structures: items,
-				yearlyFee: FeeStructureService.calculateYearlyFee(items),
-				termsPerYear: FeeStructureService.getTermsPerYear(course.id, selectedYear, structures) || items.length
-			});
-		}
-		groups.sort((a, b) => a.course.name.localeCompare(b.course.name));
-		return groups;
-	}
+	let studentCounts = $derived.by(() => {
+		const m = new Map<string, number>();
+		for (const s of activeSessions) m.set(s.course.name, (m.get(s.course.name) ?? 0) + 1);
+		return m;
+	});
+	let stats = $derived({
+		active: courses.filter((c) => c.status === 'ACTIVE').length,
+		closed: courses.filter((c) => c.status === 'CLOSED').length,
+		students: new Set(activeSessions.map((s) => s.student.admissionNo)).size,
+		enrolments: activeSessions.length
+	});
 
-	function computeStats(groups: CourseGroup[], counts: Map<string, number>) {
-		const courseCount = groups.length;
-		const avgTermsPerYear = groups.length
-			? groups.reduce((s, g) => s + (g.termsPerYear || 0), 0) / groups.length
-			: 0;
-		const totalStudents = Array.from(counts.values()).reduce((s, n) => s + n, 0);
-		const avgAnnual = groups.length
-			? Math.round(groups.reduce((s, g) => s + g.yearlyFee, 0) / groups.length)
-			: 0;
-		let topCourse: { name: string; count: number } | null = null;
-		for (const g of groups) {
-			const c = counts.get(g.course.id) ?? 0;
-			if (!topCourse || c > topCourse.count) topCourse = { name: g.course.name, count: c };
-		}
-		return { courseCount, avgTermsPerYear, totalStudents, avgAnnual, topCourse };
-	}
-
-	function getTermMonthRange(termNumber: number, termsPerYear: number): string {
-		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		if (termsPerYear <= 0 || termNumber <= 0 || termNumber > termsPerYear) return '—';
-		const monthsPerTerm = 12 / termsPerYear;
-		const startIdx = Math.floor((termNumber - 1) * monthsPerTerm);
-		const endIdx = Math.min(Math.floor(termNumber * monthsPerTerm) - 1, months.length - 1);
-		const start = months[startIdx];
-		const end = months[endIdx];
-		return start === end ? `${start} ${selectedYear}` : `${start} – ${end} ${selectedYear}`;
-	}
-
-	function getTermStatus(termNumber: number, termsPerYear: number): 'closed' | 'active' | 'upcoming' {
-		if (termsPerYear <= 0) return 'upcoming';
-		const now = new Date();
-		const sameYear = now.getFullYear();
-		if (selectedYear < sameYear) return 'closed';
-		if (selectedYear > sameYear) return 'upcoming';
-		const monthsPerTerm = 12 / termsPerYear;
-		const startMonth = Math.floor((termNumber - 1) * monthsPerTerm);
-		const endMonth = Math.floor(termNumber * monthsPerTerm) - 1;
-		const m = now.getMonth();
-		if (m < startMonth) return 'upcoming';
-		if (m > endMonth) return 'closed';
-		return 'active';
-	}
-
-	async function loadFeeStructures(year: number) {
+	async function load() {
+		loading = true;
+		error = '';
 		try {
-			loading = true;
-			error = '';
-			feeStructures = await feeStructureStore.getByYear(year);
-			courseStudentCounts = new Map();
-			if (feeStructures.length && !selectedCourseId) {
-				const groups = buildCourseGroups(feeStructures);
-				selectedCourseId = groups[0]?.course.id ?? null;
-			}
-			refreshStudentCounts();
-			if (selectedGroup) loadDetailSessions(selectedGroup.course.name);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load courses';
+			const [c, s] = await Promise.all([
+				api.courses.list(),
+				canReadSessions ? api.sessions.list({ active: true }) : Promise.resolve([])
+			]);
+			courses = c.sort((a, b) => a.name.localeCompare(b.name));
+			activeSessions = s;
+		} catch (e) {
+			error = errorMessage(e, 'Failed to load courses');
 		} finally {
 			loading = false;
 		}
 	}
 
-	async function refreshStudentCounts() {
-		const groups = buildCourseGroups(feeStructures);
-		await Promise.all(
-			groups.map(async (g) => {
-				try {
-					const sessions = await StudentSessionService.getStudentsByCourseAndYear(g.course.name, selectedYear);
-					courseStudentCounts.set(g.course.id, sessions.filter(isSessionActive).length);
-					courseStudentCounts = courseStudentCounts;
-				} catch {
-					/* ignore per-course count failures */
-				}
-			})
-		);
+	onMount(load);
+
+	// fall back to a tab the user can see
+	let shownTab = $derived<DetailTab>(tab !== 'students' && !canReadFees ? 'students' : tab);
+
+	function select(name: string) {
+		const url = new URL($page.url);
+		url.searchParams.set('course', name);
+		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
-	async function loadDetailSessions(courseName: string) {
+	async function addCourse(e: Event) {
+		e.preventDefault();
+		addError = '';
+		if (!newName.trim()) {
+			addError = 'Enter a course name';
+			return;
+		}
+		adding = true;
 		try {
-			loadingSessions = true;
-			detailSessions = await StudentSessionService.getStudentsByCourseAndYear(courseName, selectedYear);
-		} catch {
-			detailSessions = [];
+			const created = await api.courses.create(newName);
+			toast.ok(`Course "${created.name}" added`);
+			newName = '';
+			if (legacy) statusFilter = 'ACTIVE';
+			await load();
+			select(created.name);
+		} catch (err) {
+			addError = fieldErrors(err).name ?? errorMessage(err, 'Failed to add course');
 		} finally {
-			loadingSessions = false;
+			adding = false;
 		}
 	}
 
-	function selectCourse(courseId: string) {
-		selectedCourseId = courseId;
-		const g = courseGroups.find((c) => c.course.id === courseId);
-		if (g) loadDetailSessions(g.course.name);
-	}
-
-	function isSessionActive(s: StudentSession): boolean {
-		return s.dateOfDisjoining === null || s.dateOfDisjoining === undefined;
-	}
-
-	function formatDate(d: string | null | undefined): string {
-		if (!d) return '—';
+	async function toggleClosed(c: Course) {
+		const closing = c.status === 'ACTIVE';
+		const msg = closing
+			? `Close ${c.name}? It will take no new enrolments, timeline entries or course-fee payments. Existing sessions, payments and dues stay as they are.`
+			: `Reopen ${c.name}?`;
+		if (!confirm(msg)) return;
+		busy = true;
 		try {
-			return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-		} catch {
-			return d;
+			const updated = closing ? await api.courses.close(c.name) : await api.courses.reopen(c.name);
+			courses = courses.map((x) => (x.name === updated.name ? updated : x));
+			toast.ok(`${updated.name} ${closing ? 'closed' : 'reopened'}`);
+		} catch (err) {
+			toast.error(errorMessage(err));
+			await load();
+		} finally {
+			busy = false;
 		}
-	}
-
-	function todayStr(): string {
-		return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-	}
-
-	function printStudents() {
-		window.print();
 	}
 
 	function initials(name: string): string {
@@ -180,9 +130,6 @@
 			.map((w) => w[0]?.toUpperCase() ?? '')
 			.join('');
 	}
-
-	$: if (selectedYear) loadFeeStructures(selectedYear);
-	$: activeStudentCount = detailSessions.filter(isSessionActive).length;
 </script>
 
 <svelte:head>
@@ -193,323 +140,141 @@
 	<div class="page-head">
 		<div class="page-head-row">
 			<div>
-				<h1 class="page-title">Courses &amp; <em>fee</em> structure</h1>
-				<p class="page-subtitle">Programme catalogue with term fees and student enrolments.</p>
+				<h1 class="page-title">Courses &amp; <em>fees</em></h1>
+				<p class="page-subtitle">{legacy ? 'Courses, their fee structures, and which structure applies when.' : 'Courses and who is enrolled in them.'}</p>
 			</div>
-			<div class="field" style="min-width: 140px;">
-				<span class="field-label">Year</span>
-				<Select
-					bind:value={selectedYear}
-					options={availableYears.map((y) => ({ value: y, label: String(y) }))}
-					ariaLabel="Year"
-				/>
-			</div>
-		</div>
-	</div>
-
-	<!-- Top stat cards -->
-	<div class="course-stats">
-		<div class="stat-card">
-			<div class="stat-value">{stats.courseCount}</div>
-			<div class="stat-meta">
-				{stats.avgTermsPerYear > 0 ? `across ${stats.avgTermsPerYear.toFixed(1)} terms avg` : 'courses'}
-			</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-value">{stats.totalStudents}</div>
-			<div class="stat-meta">
-				<span class="muted">students enrolled · {selectedYear}</span>
-			</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-value">₹{stats.avgAnnual.toLocaleString('en-IN')}</div>
-			<div class="stat-meta muted">avg annual fee</div>
-		</div>
-		<div class="stat-card">
-			{#if stats.topCourse && stats.topCourse.count > 0}
-				<div class="stat-value-text">{stats.topCourse.name}</div>
-				<div class="stat-meta">
-					<Badge kind="ok">{stats.topCourse.count} students</Badge>
-					<span class="muted" style="margin-left: 8px;">top enrolment</span>
+			{#if legacy}
+				<div class="seg" role="radiogroup" aria-label="Course status">
+					{#each [['ACTIVE', 'Active'], ['CLOSED', 'Closed'], ['ALL', 'All']] as [v, label]}
+						<button class:active={statusFilter === v} role="radio" aria-checked={statusFilter === v} onclick={() => (statusFilter = v as StatusFilter)}>{label}</button>
+					{/each}
 				</div>
-			{:else}
-				<div class="stat-value-text muted" style="font-size: 18px;">—</div>
-				<div class="stat-meta muted">top enrolment</div>
 			{/if}
 		</div>
 	</div>
 
+	<div class="course-stats" class:no-status={!legacy}>
+		{#if legacy}
+			<div class="stat-card">
+				<div class="stat-value">{stats.active}</div>
+				<div class="stat-meta muted">active courses</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value">{stats.closed}</div>
+				<div class="stat-meta muted">closed courses</div>
+			</div>
+		{:else}
+			<div class="stat-card">
+				<div class="stat-value">{courses.length}</div>
+				<div class="stat-meta muted">courses</div>
+			</div>
+		{/if}
+		<div class="stat-card">
+			<div class="stat-value">{canReadSessions ? stats.students : '—'}</div>
+			<div class="stat-meta muted">students enrolled now</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">{canReadSessions ? stats.enrolments : '—'}</div>
+			<div class="stat-meta muted">ongoing enrolments</div>
+		</div>
+	</div>
+
+	<ErrorCallout message={error} />
+
 	{#if loading}
 		<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
-	{:else if error}
-		<div class="callout danger"><div class="callout-body">{error}</div></div>
-	{:else if courseGroups.length === 0}
-		<div class="card-s">
-			<div class="card-body-s">
-				<div class="empty-s">
-					<div class="glyph">∅</div>
-					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No courses found</div>
-					<div style="margin-top: 4px;">Try a different year.</div>
-				</div>
-			</div>
-		</div>
 	{:else}
 		<div class="course-split">
-			<!-- Left: course list -->
 			<aside class="course-list-card">
 				<div class="course-list-head">
-					<span class="course-list-title">All courses</span>
-					<span class="course-list-count">{courseGroups.length}</span>
+					<span class="course-list-title">{statusFilter === 'ALL' ? 'All' : statusFilter === 'ACTIVE' ? 'Active' : 'Closed'} courses</span>
+					<span class="course-list-count">{shown.length}</span>
 				</div>
 				<div class="course-list-body">
-					{#each courseGroups as g}
-						{@const isSel = selectedGroup?.course.id === g.course.id}
-						{@const studentCount = courseStudentCounts.get(g.course.id) ?? 0}
-						<button
-							type="button"
-							class="course-row"
-							class:is-sel={isSel}
-							onclick={() => selectCourse(g.course.id)}
-						>
-							<span class="course-avatar">{initials(g.course.name)}</span>
+					{#each shown as c (c.name)}
+						<button type="button" class="course-row" class:is-sel={selected?.name === c.name} class:is-closed={c.status === 'CLOSED'} onclick={() => select(c.name)}>
+							<span class="course-avatar">{initials(c.name)}</span>
 							<span class="course-row-body">
-								<span class="course-row-name">{g.course.name}</span>
+								<span class="course-row-name">{c.name}</span>
 								<span class="course-row-meta">
-									<Users size={11} strokeWidth={1.6} />
-									{studentCount} · ₹{(g.structures[0]?.amount ?? 0).toLocaleString('en-IN')}/term
+									{#if c.status === 'CLOSED'}
+										<Lock size={11} strokeWidth={1.6} /> closed {formatDate(c.closedAt)}
+									{:else}
+										<Users size={11} strokeWidth={1.6} /> {studentCounts.get(c.name) ?? 0} enrolled
+									{/if}
 								</span>
 							</span>
 						</button>
+					{:else}
+						<div class="muted" style="padding: 18px; text-align: center; font-size: 13px;">No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} courses.</div>
 					{/each}
 				</div>
-				<button class="course-add" type="button" disabled>
-					<Plus size={14} strokeWidth={1.6} /> Add course
-				</button>
+				{#if canWriteCourse}
+					<form class="add-course" onsubmit={addCourse}>
+						<input class="input-s" class:input-error-s={addError} placeholder="New course name" bind:value={newName} disabled={adding} aria-label="New course name" />
+						<button class="btn-s btn-secondary-s" type="submit" disabled={adding}>
+							{#if adding}<span class="spinner"></span>{:else}<Plus size={14} strokeWidth={1.6} />{/if} Add
+						</button>
+					</form>
+					{#if addError}<div class="field-error" style="padding: 0 10px 10px;">{addError}</div>{/if}
+				{/if}
 			</aside>
 
-			<!-- Right: course detail -->
 			<section class="course-detail">
-				{#if selectedGroup}
+				{#if selected}
 					<header class="course-detail-head">
 						<div style="display: flex; gap: 14px; align-items: flex-start; flex: 1; min-width: 0;">
-							<span class="course-avatar course-avatar-lg">{initials(selectedGroup.course.name)}</span>
+							<span class="course-avatar course-avatar-lg">{initials(selected.name)}</span>
 							<div style="min-width: 0; flex: 1;">
-								<h2 class="course-detail-name">{selectedGroup.course.name}</h2>
-								<p class="course-detail-sub">
-									{selectedGroup.termsPerYear} terms · {activeStudentCount} students enrolled · year {selectedYear}
-								</p>
-								<div style="display: flex; gap: 8px; margin-top: 12px;">
-									<button class="btn-s btn-secondary-s btn-sm-s" disabled>
-										<Pencil size={12} strokeWidth={1.6} /> Edit course
-									</button>
-									<button class="btn-s btn-secondary-s btn-sm-s" disabled>
-										<Users size={12} strokeWidth={1.6} /> Manage roster
-									</button>
-									<button class="btn-s btn-ghost-s btn-icon-s btn-sm-s" disabled aria-label="More">
-										<MoreHorizontal size={14} strokeWidth={1.6} />
-									</button>
+								<div style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+									<h2 class="course-detail-name">{selected.name}</h2>
+									{#if legacy}
+										{#if selected.status === 'ACTIVE'}<Badge kind="ok" dot>Active</Badge>{:else}<Badge kind="neutral">Closed</Badge>{/if}
+									{/if}
 								</div>
-							</div>
-						</div>
-						<div class="course-detail-kpis">
-							<div>
-								<div class="kpi-label">Term fee</div>
-								<div class="kpi-value">₹{termFee.toLocaleString('en-IN')}</div>
-							</div>
-							<div>
-								<div class="kpi-label">Annual</div>
-								<div class="kpi-value accent">₹{annualFee.toLocaleString('en-IN')}</div>
-							</div>
-							<div>
-								<div class="kpi-label">Students</div>
-								<div class="kpi-value">{activeStudentCount}</div>
+								<p class="course-detail-sub">
+									{#if selected.status === 'CLOSED'}
+										Closed on {formatDate(selected.closedAt)}. No new enrolments, timeline entries or course-fee payments.
+									{:else}
+										{studentCounts.get(selected.name) ?? 0} students enrolled now
+									{/if}
+								</p>
+								{#if canWriteCourse && legacy}
+									<div style="display: flex; gap: 8px; margin-top: 12px;">
+										<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => toggleClosed(selected!)} disabled={busy}>
+											{#if selected.status === 'ACTIVE'}<Lock size={12} strokeWidth={1.6} /> Close course{:else}<LockOpen size={12} strokeWidth={1.6} /> Reopen course{/if}
+										</button>
+									</div>
+								{/if}
 							</div>
 						</div>
 					</header>
 
 					<div class="course-tabs">
-						<button class:is-active={activeTab === 'schedule'} onclick={() => (activeTab = 'schedule')}>
-							Terms &amp; schedule
-						</button>
-						<button class:is-active={activeTab === 'students'} onclick={() => (activeTab = 'students')}>
-							Students <span class="tab-badge">{activeStudentCount}</span>
-						</button>
-						<button class:is-active={activeTab === 'policy'} onclick={() => (activeTab = 'policy')}>Fee policy</button>
-						<button class:is-active={activeTab === 'analytics'} onclick={() => (activeTab = 'analytics')}>Analytics</button>
+						{#if canReadFees}
+							<button class:is-active={shownTab === 'timeline'} onclick={() => (tab = 'timeline')}>Fee timeline</button>
+							<button class:is-active={shownTab === 'structures'} onclick={() => (tab = 'structures')}>Fee structures</button>
+						{/if}
+						{#if canReadSessions}
+							<button class:is-active={shownTab === 'students'} onclick={() => (tab = 'students')}>
+								Students <span class="tab-badge">{studentCounts.get(selected.name) ?? 0}</span>
+							</button>
+						{/if}
 					</div>
 
-					{#if activeTab === 'schedule'}
-						<div class="course-card">
-							<div class="course-card-head">
-								<span class="course-card-title">Term schedule</span>
-							</div>
-							<div class="tbl-wrap">
-								<table class="tbl">
-									<thead>
-										<tr>
-											<th>Term</th>
-											<th>Period</th>
-											<th style="text-align: right;">Fee</th>
-											<th>Status</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each selectedGroup.structures as fs}
-											{@const status = getTermStatus(fs.term, selectedGroup.termsPerYear)}
-											<tr>
-												<td><span class="strong">Term {fs.term}</span></td>
-												<td class="muted">{getTermMonthRange(fs.term, selectedGroup.termsPerYear)}</td>
-												<td class="num strong">₹{fs.amount.toLocaleString('en-IN')}</td>
-												<td>
-													{#if !fs.isActive}
-														<Badge kind="neutral">Inactive</Badge>
-													{:else if status === 'active'}
-														<Badge kind="ok">Active</Badge>
-													{:else if status === 'closed'}
-														<Badge kind="neutral">Closed</Badge>
-													{:else}
-														<Badge kind="warn">Upcoming</Badge>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					{:else if activeTab === 'students'}
-						<div class="course-card">
-							<div class="course-card-head" style="display: flex; align-items: center; justify-content: space-between;">
-								<span class="course-card-title">Enrolled students · {selectedYear}</span>
-								<button
-									class="btn-s btn-secondary-s btn-sm-s"
-									onclick={printStudents}
-									disabled={detailSessions.length === 0}
-								>
-									<Printer size={14} strokeWidth={1.6} /> Print
-								</button>
-							</div>
-							{#if loadingSessions}
-								<div style="display: flex; justify-content: center; padding: 30px 0;"><span class="spinner spinner-lg"></span></div>
-							{:else if detailSessions.length === 0}
-								<div class="callout info"><div class="callout-body">No students enrolled in {selectedYear}.</div></div>
-							{:else}
-								<div class="tbl-wrap">
-									<table class="tbl">
-										<thead>
-											<tr>
-												<th>Admission #</th>
-												<th>Name</th>
-												<th>Joined</th>
-												<th>Left</th>
-												<th>Status</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each detailSessions as s}
-												<tr>
-													<td>
-														<a href="/students/{s.student.admissionNo}" style="color: var(--accent); font-family: var(--font-mono); font-size: 12px;">
-															{s.student.admissionNo}
-														</a>
-													</td>
-													<td><span class="strong">{s.student.studentName}</span></td>
-													<td class="muted">{formatDate(s.dateOfJoining)}</td>
-													<td class="muted">{isSessionActive(s) ? '—' : formatDate(s.dateOfDisjoining)}</td>
-													<td>
-														{#if isSessionActive(s)}
-															<Badge kind="ok">Active</Badge>
-														{:else}
-															<Badge kind="neutral">Inactive</Badge>
-														{/if}
-													</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-									<div style="padding: 10px 16px; font-size: 12px; color: var(--fg-muted); border-top: 1px solid var(--border);">
-										Total: {detailSessions.length} student{detailSessions.length !== 1 ? 's' : ''} · {activeStudentCount} active
-									</div>
-								</div>
-							{/if}
-						</div>
-					{:else if activeTab === 'policy'}
-						<div class="course-card">
-							<div class="course-card-head"><span class="course-card-title">Fee policy</span></div>
-							<div style="padding: 18px;">
-								<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
-									<div>
-										<div class="kpi-label">Term fee</div>
-										<div class="kpi-value">₹{termFee.toLocaleString('en-IN')}</div>
-									</div>
-									<div>
-										<div class="kpi-label">Annual</div>
-										<div class="kpi-value accent">₹{annualFee.toLocaleString('en-IN')}</div>
-									</div>
-									<div>
-										<div class="kpi-label">Terms / year</div>
-										<div class="kpi-value">{selectedGroup.termsPerYear}</div>
-									</div>
-								</div>
-							</div>
-						</div>
-					{:else if activeTab === 'analytics'}
-						<div class="course-card">
-							<div class="course-card-head"><span class="course-card-title">Analytics</span></div>
-							<div style="padding: 28px; text-align: center; color: var(--fg-muted);">
-								<TrendingUp size={20} strokeWidth={1.4} />
-								<div style="margin-top: 8px;">Analytics for this course are not available yet.</div>
-							</div>
-						</div>
-					{/if}
+					{#key selected.name}
+						{#if shownTab === 'structures' && canReadFees}
+							<FeeStructuresTab course={selected} />
+						{:else if shownTab === 'timeline' && canReadFees}
+							<FeeTimelineTab course={selected} />
+						{:else if shownTab === 'students' && canReadSessions}
+							<CourseStudentsTab course={selected} />
+						{/if}
+					{/key}
 				{:else}
-					<div class="callout info"><div class="callout-body">Select a course to view details.</div></div>
+					<div class="callout info"><div class="callout-body">{courses.length === 0 ? 'No courses yet. Add one to get started.' : 'Select a course to view details.'}</div></div>
 				{/if}
 			</section>
-		</div>
-	{/if}
-
-	<!-- Print-only block: students roster for the selected course -->
-	{#if selectedGroup && activeTab === 'students' && detailSessions.length > 0}
-		<div class="course-print">
-			<div class="print-header">
-				<div>
-					<div class="print-brand">Revathi <em>Arts</em> &amp; Music School</div>
-					<div class="print-title">{selectedGroup.course.name} · students roster</div>
-					<div class="print-meta">
-						Year {selectedYear} · {selectedGroup.termsPerYear} terms · {activeStudentCount} active of {detailSessions.length} · Generated {todayStr()}
-					</div>
-				</div>
-				<div class="print-totals">
-					<div><span class="print-totals-label">Term fee</span> ₹{(selectedGroup.structures[0]?.amount ?? 0).toLocaleString('en-IN')}</div>
-					<div><span class="print-totals-label">Annual</span> ₹{selectedGroup.yearlyFee.toLocaleString('en-IN')}</div>
-				</div>
-			</div>
-
-			<table class="print-tbl">
-				<thead>
-					<tr>
-						<th style="width: 40px;">#</th>
-						<th>Admission #</th>
-						<th>Name</th>
-						<th>Joined</th>
-						<th>Left</th>
-						<th>Status</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each detailSessions as s, i}
-						<tr>
-							<td>{i + 1}</td>
-							<td>{s.student.admissionNo}</td>
-							<td>{s.student.studentName}</td>
-							<td>{formatDate(s.dateOfJoining)}</td>
-							<td>{isSessionActive(s) ? '—' : formatDate(s.dateOfDisjoining)}</td>
-							<td>{isSessionActive(s) ? 'Active' : 'Inactive'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
 		</div>
 	{/if}
 </div>
@@ -521,8 +286,12 @@
 		gap: 12px;
 		margin-bottom: 18px;
 	}
+	.course-stats.no-status {
+		grid-template-columns: repeat(3, 1fr);
+	}
 	@media (max-width: 1100px) {
-		.course-stats { grid-template-columns: repeat(2, 1fr); }
+		.course-stats,
+		.course-stats.no-status { grid-template-columns: repeat(2, 1fr); }
 	}
 	.stat-card {
 		background: var(--surface);
@@ -542,14 +311,6 @@
 		color: var(--fg);
 		line-height: 1.1;
 	}
-	.stat-value-text {
-		font-family: var(--font-serif);
-		font-size: 22px;
-		font-weight: 500;
-		letter-spacing: -0.01em;
-		color: var(--fg);
-		line-height: 1.2;
-	}
 	.stat-meta {
 		font-size: 12px;
 		color: var(--fg-soft);
@@ -557,7 +318,6 @@
 		display: flex;
 		align-items: center;
 	}
-	.stat-meta .muted { color: var(--fg-muted); }
 
 	.course-split {
 		display: grid;
@@ -666,27 +426,6 @@
 		border-radius: 12px;
 		font-size: 22px;
 	}
-	.course-add {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		padding: 12px;
-		margin: 6px;
-		background: transparent;
-		border: 1px dashed var(--border-strong);
-		border-radius: 8px;
-		color: var(--fg-soft);
-		font: inherit;
-		font-size: 13px;
-		cursor: pointer;
-		transition: background 120ms ease, color 120ms ease;
-	}
-	.course-add:hover:not(:disabled) {
-		background: var(--hover);
-		color: var(--fg);
-	}
-	.course-add:disabled { opacity: 0.55; cursor: not-allowed; }
 
 	.course-detail {
 		display: flex;
@@ -716,19 +455,6 @@
 		font-size: 13px;
 		color: var(--fg-muted);
 	}
-	.course-detail-kpis {
-		display: flex;
-		gap: 24px;
-		padding-left: 18px;
-		border-left: 1px solid var(--border);
-	}
-	.kpi-value {
-		font-family: var(--font-serif);
-		font-size: 20px;
-		font-weight: 500;
-		letter-spacing: -0.01em;
-	}
-	.kpi-value.accent { color: var(--accent-deep); }
 
 	.course-tabs {
 		display: flex;
@@ -765,75 +491,21 @@
 		border-radius: 999px;
 	}
 
-	.course-card {
+	:global(.course-card) {
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: 12px;
 		overflow: hidden;
 	}
-	.course-card-head {
+	:global(.course-card-head) {
 		padding: 14px 18px;
 		border-bottom: 1px solid var(--border);
 	}
-	.course-card-title {
+	:global(.course-card-title) {
 		font-family: var(--font-serif);
 		font-size: 16px;
 		font-weight: 500;
 	}
-
-	/* ---------- Print ---------- */
-	.course-print { display: none; }
-
-	@media print {
-		:global(body) :global(*) { visibility: hidden !important; }
-		.course-print, .course-print * { visibility: visible !important; }
-		.course-print {
-			display: block;
-			position: absolute;
-			inset: 0;
-			padding: 18mm 14mm;
-			background: white;
-			color: #1a1a1a;
-			font-family: var(--font-sans);
-		}
-		.print-header {
-			display: flex;
-			justify-content: space-between;
-			align-items: flex-start;
-			gap: 24px;
-			border-bottom: 1px solid #d0d0d0;
-			padding-bottom: 10px;
-			margin-bottom: 16px;
-		}
-		.print-brand { font-family: var(--font-serif); font-size: 18px; }
-		.print-brand em { font-style: italic; color: #444; }
-		.print-title { font-family: var(--font-serif); font-size: 22px; font-weight: 500; margin-top: 4px; }
-		.print-meta { font-size: 11px; color: #555; margin-top: 4px; }
-		.print-totals { font-size: 12px; text-align: right; line-height: 1.6; }
-		.print-totals-label {
-			display: inline-block;
-			min-width: 70px;
-			text-transform: uppercase;
-			letter-spacing: 0.08em;
-			color: #777;
-			font-size: 10px;
-			margin-right: 6px;
-		}
-		.print-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
-		.print-tbl th, .print-tbl td {
-			padding: 5px 7px;
-			border-bottom: 1px solid #ececec;
-			text-align: left;
-			vertical-align: top;
-		}
-		.print-tbl th {
-			text-transform: uppercase;
-			letter-spacing: 0.06em;
-			font-size: 9.5px;
-			color: #555;
-			font-weight: 500;
-			background: #f6f6f6;
-		}
-		@page { margin: 12mm; }
-	}
+	.course-row.is-closed .course-row-name { color: var(--fg-muted); }
+	.add-course { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
 </style>

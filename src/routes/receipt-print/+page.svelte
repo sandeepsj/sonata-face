@@ -201,13 +201,7 @@
 						<td>{formatDate(payment.date)}</td>
 						<td>{ payment.courseName || payment.label || 'Fee Payment'}</td>
 						<td>
-							{#if payment.termYear && payment.termNumber}
-								Y{payment.termYear} T{payment.termNumber}
-							{:else if payment.termName}
-								{payment.termName}
-							{:else}
-								-
-							{/if}
+							{payment.period || '-'}
 						</td>
 						<td class="text-right" style="font-weight: 600;">
 							₹{formatCurrency(payment.amountPaid + (payment.discountAmount || 0))}

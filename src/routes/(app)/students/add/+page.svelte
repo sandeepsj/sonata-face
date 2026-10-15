@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { Save, X, ArrowLeft } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
-	import { StudentService } from '$lib';
+	import { isoDate } from '$lib/utils/format';
+	import { api, errorMessage, fieldErrors } from '$lib';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 
 	let formData = {
+		admissionNo: '',
 		studentName: '',
 		admissionDate: '',
 		contactNo: '',
@@ -18,6 +21,7 @@
 
 	let saving = false;
 	let errors: Record<string, string> = {};
+	let formError = '';
 
 	function validateForm() {
 		errors = {};
@@ -26,6 +30,8 @@
 			errors.contactNo = 'Please enter a valid 10-digit phone number';
 		if (formData.pinCode && !/^\d{6}$/.test(formData.pinCode))
 			errors.pinCode = 'Please enter a valid 6-digit pin code';
+		if (formData.admissionNo && !/^\d+$/.test(formData.admissionNo))
+			errors.admissionNo = 'Admission number must be a whole number';
 		if (formData.admissionDate && isNaN(new Date(formData.admissionDate).getTime()))
 			errors.admissionDate = 'Please enter a valid admission date';
 		if (formData.dob) {
@@ -39,8 +45,10 @@
 	async function saveStudent() {
 		if (!validateForm()) return;
 		saving = true;
+		formError = '';
 		try {
-			const studentData: Partial<typeof formData> = {};
+			const studentData: Record<string, string | number> = {};
+			if (formData.admissionNo) studentData.admissionNo = Number(formData.admissionNo);
 			studentData.studentName = formData.studentName.trim();
 			if (formData.admissionDate) studentData.admissionDate = formData.admissionDate;
 			if (formData.contactNo) studentData.contactNo = formData.contactNo.trim();
@@ -52,10 +60,11 @@
 			if (formData.remarks) studentData.remarks = formData.remarks.trim();
 			if (formData.status !== 'active') studentData.status = formData.status;
 
-			const created = await StudentService.createStudent(studentData);
+			const created = await api.students.create(studentData);
 			goto(`/students/${created.admissionNo}`);
 		} catch (error) {
-			console.error('Error creating student:', error);
+			formError = errorMessage(error, 'Failed to create student');
+			errors = { ...errors, ...fieldErrors(error) };
 		} finally {
 			saving = false;
 		}
@@ -66,7 +75,7 @@
 	}
 
 	function setTodayAsAdmissionDate() {
-		formData.admissionDate = new Date().toISOString().split('T')[0];
+		formData.admissionDate = isoDate();
 	}
 </script>
 
@@ -97,6 +106,7 @@
 	</div>
 
 	<div class="col-s">
+		<ErrorCallout message={formError} />
 		<div class="card-s">
 			<div class="card-header">
 				<h3 class="card-title-s">Personal <em style="color: var(--accent); font-style: italic;">details</em></h3>
@@ -107,6 +117,11 @@
 						<label>Student name *</label>
 						<input class="input-s" class:input-error-s={errors.studentName} bind:value={formData.studentName} placeholder="Full name" disabled={saving} required />
 						{#if errors.studentName}<span class="field-error">{errors.studentName}</span>{/if}
+					</div>
+					<div class="field">
+						<label for="admissionNo">Admission number</label>
+						<input id="admissionNo" class="input-s" class:input-error-s={errors.admissionNo} bind:value={formData.admissionNo} placeholder="Leave blank for the next number" inputmode="numeric" disabled={saving} />
+						{#if errors.admissionNo}<span class="field-error">{errors.admissionNo}</span>{/if}
 					</div>
 					<div class="field">
 						<label style="display: flex; justify-content: space-between;">

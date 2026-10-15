@@ -1,245 +1,169 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { DuesAggregateService, FeeDuesService } from '$lib';
-	import type {
-		CourseAggregate,
-		YearAggregate,
-		TermAggregate,
-		AggregateGroupBy,
-		FeeDuesTrackerDTO
-	} from '$lib';
-	import {
-		Filter,
-		Download,
-		Users,
-		Book,
-		Calendar,
-		Hash,
-		AlertCircle,
-		Printer
-	} from 'lucide-svelte';
-	import { tick } from 'svelte';
-	import Badge from '$lib/components/Badge.svelte';
+	import { onMount, tick } from 'svelte';
+	import { Filter, Download, Users, Book, Calendar, Hash, Printer } from 'lucide-svelte';
+	import { api, errorMessage } from '$lib';
+	import { DUE_STATUSES, type AggregateGroupBy, type AggregateRow, type Due, type DueStatus, type DuesSummary } from '$lib/api/types';
+	import { formatDate, formatPeriod, isoDate } from '$lib/utils/format';
 	import Money from '$lib/components/Money.svelte';
 	import Select from '$lib/components/Select.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 
-	type DuesGroup = {
-		key: string;
-		label: string;
-		sub?: string;
-		count: number;
-		totalDue: number;
-		params: { course?: string; year?: number; termNumber?: number };
-	};
+	/** '' = open dues (DUE + PARTIALLY_PAID) */
+	type StatusFilter = '' | 'ALL' | DueStatus;
+
+	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	const STATUS_LABEL: Record<DueStatus, string> = { DUE: 'Due', PARTIALLY_PAID: 'Partially paid', PAID: 'Paid', OVERPAID: 'Overpaid', WAIVED: 'Waived' };
 
 	let groupBy = $state<AggregateGroupBy>('course');
-	let selectedStatuses = $state('DUE,PARTIALLY_PAID');
-	let selectedYear = $state<number | null>(null);
-	let selectedTermNumber = $state<number | null>(null);
-	let selectedCourse = $state<string | null>(null);
+	let statusFilter = $state<StatusFilter>('');
+	// filters on the period start date
+	let from = $state('');
+	let to = $state(isoDate());
 
-	let courseAggregates = $state<CourseAggregate[]>([]);
-	let yearAggregates = $state<YearAggregate[]>([]);
-	let termAggregates = $state<TermAggregate[]>([]);
-
-	let selectedKey = $state<string | null>(null);
-	let detailsData = $state<Map<string, FeeDuesTrackerDTO[]>>(new Map());
-	let loadingDetails = $state(false);
-
+	let rows = $state<AggregateRow[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
-	let availableYears = $state<number[]>([]);
-	let availableCourses = $state<string[]>([]);
+	let selectedKey = $state<string | null>(null);
+	let details = $state<Map<string, Due[]>>(new Map());
+	let loadingDetails = $state(false);
+	let courseSummary = $state<DuesSummary | null>(null);
 
-	// Print state — when truthy, the print block renders these groups instead of the on-screen detail.
-	let printGroups = $state<DuesGroup[] | null>(null);
+	let printKeys = $state<string[] | null>(null);
 	let printing = $state(false);
 
-	onMount(() => {
-		loadAggregates();
-		loadFilterOptions();
-	});
-
-	async function loadFilterOptions() {
-		try {
-			const years = await DuesAggregateService.getAggregateByYear({ statuses: selectedStatuses });
-			const courses = await DuesAggregateService.getAggregateByCourse({ statuses: selectedStatuses });
-			availableYears = years.map((y) => y.year).sort((a, b) => b - a);
-			availableCourses = courses.map((c) => c.course).sort();
-		} catch (err) {
-			console.error('Error loading filter options:', err);
-		}
-	}
+	onMount(loadAggregates);
 
 	async function loadAggregates() {
 		loading = true;
 		error = null;
 		try {
-			const params = {
-				statuses: selectedStatuses,
-				year: selectedYear || undefined,
-				termNumber: selectedTermNumber || undefined,
-				course: selectedCourse || undefined
-			};
-			if (groupBy === 'course') courseAggregates = await DuesAggregateService.getAggregateByCourse(params);
-			else if (groupBy === 'year') yearAggregates = await DuesAggregateService.getAggregateByYear(params);
-			else if (groupBy === 'term') termAggregates = await DuesAggregateService.getAggregateByTerm(params);
-			detailsData.clear();
-			detailsData = new Map();
-			// Auto-select first group after load
-			const first = groups[0];
-			selectedKey = first?.key ?? null;
-			if (first) loadDetails(first);
+			rows = await api.dues.aggregate(groupBy, from || undefined, to || undefined);
+			rows.sort((a, b) => (groupBy === 'month' ? b.key.localeCompare(a.key) : b.balance - a.balance));
+			details = new Map();
+			selectedKey = rows[0]?.key ?? null;
+			if (selectedKey) selectGroup(selectedKey);
 		} catch (err) {
-			error = 'Failed to load aggregates. Please try again.';
+			error = errorMessage(err, 'Failed to load dues');
 		} finally {
 			loading = false;
 		}
 	}
 
-	async function loadDetails(g: DuesGroup) {
-		if (detailsData.has(g.key)) return;
+	/** Query for the dues behind one aggregate row */
+	function queryFor(key: string) {
+		const q: { courseName?: string; status?: DueStatus; from?: string; to?: string } = { from: from || undefined, to: to || undefined };
+		if (groupBy === 'course') q.courseName = key;
+		if (groupBy === 'status') q.status = key as DueStatus;
+		if (groupBy === 'month') {
+			const [y, m] = key.split('-').map(Number);
+			const start = `${key}-01`;
+			const end = isoDate(new Date(y, m, 0));
+			q.from = from && from > start ? from : start;
+			q.to = to && to < end ? to : end;
+		}
+		if (statusFilter && statusFilter !== 'ALL' && groupBy !== 'status') q.status = statusFilter;
+		return q;
+	}
+
+	function keepRow(d: Due) {
+		return statusFilter === '' && groupBy !== 'status' ? d.status === 'DUE' || d.status === 'PARTIALLY_PAID' : true;
+	}
+
+	async function loadDetails(key: string) {
+		if (details.has(key)) return;
 		loadingDetails = true;
 		try {
-			const filterParams = { statuses: selectedStatuses, ...g.params };
-			const details = await FeeDuesService.getDuesWithFilters(filterParams);
-			detailsData.set(g.key, details);
-			detailsData = new Map(detailsData);
+			const list = (await api.dues.list(queryFor(key))).filter(keepRow);
+			details.set(key, list);
+			details = new Map(details);
 		} catch (err) {
-			error = 'Failed to load details. Please try again.';
+			error = errorMessage(err, 'Failed to load dues');
 		} finally {
 			loadingDetails = false;
 		}
 	}
 
-	function selectGroup(g: DuesGroup) {
-		selectedKey = g.key;
-		loadDetails(g);
+	async function selectGroup(key: string) {
+		selectedKey = key;
+		courseSummary = null;
+		loadDetails(key);
+		if (groupBy === 'course') {
+			try {
+				courseSummary = await api.dues.summary({ courseName: key });
+			} catch {
+				courseSummary = null;
+			}
+		}
+	}
+
+	function refilter() {
+		details = new Map();
+		if (selectedKey) loadDetails(selectedKey);
 	}
 
 	function clearFilters() {
-		selectedYear = null;
-		selectedTermNumber = null;
-		selectedCourse = null;
+		from = '';
+		to = isoDate();
+		statusFilter = '';
 		loadAggregates();
 	}
 
-	async function printOne() {
-		if (!selectedGroup) return;
+	function groupLabel(key: string): string {
+		if (groupBy === 'month') {
+			const [y, m] = key.split('-');
+			return `${MONTHS[Number(m) - 1]} ${y}`;
+		}
+		if (groupBy === 'status') return STATUS_LABEL[key as DueStatus] ?? key;
+		return key;
+	}
+
+	async function print(keys: string[]) {
 		printing = true;
 		try {
-			await loadDetails(selectedGroup);
-			printGroups = [selectedGroup];
+			await Promise.all(keys.map(loadDetails));
+			printKeys = keys;
 			await tick();
 			window.print();
 		} finally {
-			printGroups = null;
+			printKeys = null;
 			printing = false;
 		}
-	}
-
-	async function printAll() {
-		printing = true;
-		try {
-			await Promise.all(groups.map((g) => loadDetails(g)));
-			printGroups = groups;
-			await tick();
-			window.print();
-		} finally {
-			printGroups = null;
-			printing = false;
-		}
-	}
-
-	function statusLabel(s: string): string {
-		if (s === 'PAID') return 'Paid';
-		if (s === 'PARTIALLY_PAID') return 'Partial';
-		if (s === 'STUDENT_LEFT_DUE_CANCELLED') return 'Cancelled';
-		if (s === 'DUE') return 'Due';
-		return s;
-	}
-
-	function todayStr(): string {
-		return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-	}
-
-	function statusFilterLabel(s: string): string {
-		if (s === 'DUE,PARTIALLY_PAID') return 'Pending (Due + Partial)';
-		if (s === '') return 'All statuses';
-		return s
-			.split(',')
-			.map(statusLabel)
-			.join(', ');
 	}
 
 	function downloadCSV() {
-		let headers: string[] = [];
-		let rows: any[][] = [];
-		if (groupBy === 'course') {
-			headers = ['Course', 'Count', 'Total Due'];
-			rows = courseAggregates.map((a) => [a.course, a.count, a.totalDue]);
-		} else if (groupBy === 'year') {
-			headers = ['Year', 'Count', 'Total Due'];
-			rows = yearAggregates.map((a) => [a.year, a.count, a.totalDue]);
-		} else if (groupBy === 'term') {
-			headers = ['Year', 'Term', 'Count', 'Total Due'];
-			rows = termAggregates.map((a) => [a.year, a.termNumber, a.count, a.totalDue]);
-		}
-		const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+		const headers = [groupBy === 'course' ? 'Course' : groupBy === 'month' ? 'Month' : 'Status', 'Dues', 'Billed', 'Balance'];
+		const lines = rows.map((r) => [groupLabel(r.key), r.count, r.amount, r.balance]);
+		const csv = [headers, ...lines]
+			.map((r) => r.map((c) => (String(c).includes(',') ? `"${String(c).replace(/"/g, '""')}"` : String(c))).join(','))
+			.join('\n');
 		const link = document.createElement('a');
-		link.href = URL.createObjectURL(blob);
-		link.download = `dues-aggregate-${groupBy}-${new Date().toISOString().split('T')[0]}.csv`;
+		link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+		link.download = `dues-by-${groupBy}-${isoDate()}.csv`;
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
 	}
 
-	let groups = $derived<DuesGroup[]>(
-		groupBy === 'course'
-			? courseAggregates.map((a) => ({
-					key: `course-${a.course}`,
-					label: a.course,
-					sub: undefined,
-					count: a.count,
-					totalDue: a.totalDue,
-					params: { course: a.course, year: selectedYear ?? undefined, termNumber: selectedTermNumber ?? undefined }
-				}))
-			: groupBy === 'year'
-				? yearAggregates.map((a) => ({
-						key: `year-${a.year}`,
-						label: `Year ${a.year}`,
-						sub: undefined,
-						count: a.count,
-						totalDue: a.totalDue,
-						params: { year: a.year, course: selectedCourse ?? undefined, termNumber: selectedTermNumber ?? undefined }
-					}))
-				: termAggregates.map((a) => ({
-						key: `term-${a.year}-${a.termNumber}`,
-						label: `Term ${a.termNumber}`,
-						sub: `${a.year}`,
-						count: a.count,
-						totalDue: a.totalDue,
-						params: { year: a.year, termNumber: a.termNumber, course: selectedCourse ?? undefined }
-					}))
-	);
-
-	let selectedGroup = $derived(groups.find((g) => g.key === selectedKey) ?? null);
-	let selectedDetails = $derived(selectedGroup ? detailsData.get(selectedGroup.key) ?? [] : []);
-
-	let totalDueAcrossGroups = $derived(groups.reduce((s, g) => s + g.totalDue, 0));
-	let totalCountAcrossGroups = $derived(groups.reduce((s, g) => s + g.count, 0));
-	let aggregateCount = $derived(groups.length);
-
-	function initials(s: string): string {
-		return s
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((w) => w[0]?.toUpperCase() ?? '')
-			.join('');
+	function rangeLabel() {
+		if (from && to) return `Periods starting ${formatDate(from)} – ${formatDate(to)}`;
+		if (to) return `Periods starting up to ${formatDate(to)}`;
+		if (from) return `Periods starting from ${formatDate(from)}`;
+		return 'All periods';
 	}
+	function statusFilterLabel() {
+		if (groupBy === 'status' || statusFilter === 'ALL') return 'All statuses';
+		if (statusFilter === '') return 'Open (due + partially paid)';
+		return STATUS_LABEL[statusFilter];
+	}
+
+	let selectedRow = $derived(rows.find((r) => r.key === selectedKey) ?? null);
+	let selectedDetails = $derived(selectedKey ? details.get(selectedKey) ?? [] : []);
+	let totalBalance = $derived(rows.reduce((s, r) => s + r.balance, 0));
+	let totalBilled = $derived(rows.reduce((s, r) => s + r.amount, 0));
+	let totalCount = $derived(rows.reduce((s, r) => s + r.count, 0));
+	let detailBalance = $derived(selectedDetails.reduce((s, d) => s + d.balance, 0));
 </script>
 
 <svelte:head>
@@ -251,13 +175,13 @@
 		<div class="page-head-row">
 			<div>
 				<h1 class="page-title">Outstanding <em>dues</em></h1>
-				<p class="page-subtitle">Aggregated view of pending fees across courses, years and terms.</p>
+				<p class="page-subtitle">Dues across the school by course, month or status. They're recalculated automatically.</p>
 			</div>
 			<div style="display: flex; gap: 8px;">
-				<button class="btn-s btn-secondary-s" onclick={printAll} disabled={printing || aggregateCount === 0}>
+				<button class="btn-s btn-secondary-s" onclick={() => print(rows.map((r) => r.key))} disabled={printing || rows.length === 0}>
 					<Printer size={14} strokeWidth={1.6} /> Print all
 				</button>
-				<button class="btn-s btn-secondary-s" onclick={downloadCSV}>
+				<button class="btn-s btn-secondary-s" onclick={downloadCSV} disabled={rows.length === 0}>
 					<Download size={14} strokeWidth={1.6} /> Export CSV
 				</button>
 			</div>
@@ -266,24 +190,24 @@
 
 	<div class="kpi-grid" style="margin-bottom: 18px;">
 		<div class="kpi">
-			<div class="kpi-label">Total outstanding</div>
-			<div class="kpi-value" style="color: var(--danger);"><Money value={totalDueAcrossGroups} mono={false} /></div>
-			<div class="kpi-meta"><span>Across all groups</span></div>
+			<div class="kpi-label">Balance</div>
+			<div class="kpi-value" style="color: var(--danger);"><Money value={totalBalance} mono={false} /></div>
+			<div class="kpi-meta"><span>{rangeLabel()}</span></div>
 		</div>
 		<div class="kpi">
-			<div class="kpi-label">Open dues</div>
-			<div class="kpi-value">{totalCountAcrossGroups}</div>
-			<div class="kpi-meta"><span>Records</span></div>
+			<div class="kpi-label">Billed</div>
+			<div class="kpi-value"><Money value={totalBilled} mono={false} /></div>
+			<div class="kpi-meta"><span>Same periods</span></div>
 		</div>
 		<div class="kpi">
-			<div class="kpi-label">Groups</div>
-			<div class="kpi-value" style="color: var(--accent);">{aggregateCount}</div>
-			<div class="kpi-meta"><span>By {groupBy}</span></div>
+			<div class="kpi-label">Collected or discounted</div>
+			<div class="kpi-value" style="color: var(--ok);"><Money value={totalBilled - totalBalance} mono={false} /></div>
+			<div class="kpi-meta"><span>Billed minus balance (incl. waived)</span></div>
 		</div>
 		<div class="kpi">
-			<div class="kpi-label">Avg per group</div>
-			<div class="kpi-value"><Money value={aggregateCount > 0 ? totalDueAcrossGroups / aggregateCount : 0} mono={false} /></div>
-			<div class="kpi-meta"><span>Mean</span></div>
+			<div class="kpi-label">Dues</div>
+			<div class="kpi-value" style="color: var(--accent);">{totalCount}</div>
+			<div class="kpi-meta"><span>{rows.length} group{rows.length !== 1 ? 's' : ''} by {groupBy}</span></div>
 		</div>
 	</div>
 
@@ -302,160 +226,125 @@
 						bind:value={groupBy}
 						options={[
 							{ value: 'course' as AggregateGroupBy, label: 'Course' },
-							{ value: 'year' as AggregateGroupBy, label: 'Year' },
-							{ value: 'term' as AggregateGroupBy, label: 'Term (year + number)' }
+							{ value: 'month' as AggregateGroupBy, label: 'Month (period start)' },
+							{ value: 'status' as AggregateGroupBy, label: 'Status' }
 						]}
 						onChange={() => loadAggregates()}
 						ariaLabel="Group by"
 					/>
 				</div>
 				<div class="field">
-					<span class="field-label">Status</span>
+					<span class="field-label">Show dues</span>
 					<Select
-						bind:value={selectedStatuses}
+						bind:value={statusFilter}
 						options={[
-							{ value: 'DUE,PARTIALLY_PAID', label: 'Pending (Due + Partial)' },
-							{ value: 'DUE', label: 'Due only' },
-							{ value: 'PARTIALLY_PAID', label: 'Partial only' },
-							{ value: 'PAID', label: 'Paid' },
-							{ value: 'CANCELLED', label: 'Cancelled' },
-							{ value: '', label: 'All statuses' }
+							{ value: '' as StatusFilter, label: 'Open (due + partial)' },
+							...DUE_STATUSES.map((st) => ({ value: st as StatusFilter, label: STATUS_LABEL[st] })),
+							{ value: 'ALL' as StatusFilter, label: 'All statuses' }
 						]}
-						onChange={() => loadAggregates()}
+						onChange={refilter}
+						disabled={groupBy === 'status'}
 						ariaLabel="Status filter"
 					/>
 				</div>
 				<div class="field">
-					<span class="field-label">Year</span>
-					<Select
-						bind:value={selectedYear}
-						options={[{ value: null, label: 'All years' }, ...availableYears.map((y) => ({ value: y, label: String(y) }))]}
-						onChange={() => loadAggregates()}
-						disabled={groupBy === 'year'}
-						ariaLabel="Year filter"
-					/>
+					<label for="due-from">Period starts from</label>
+					<input id="due-from" type="date" class="input-s" bind:value={from} onchange={loadAggregates} />
 				</div>
 				<div class="field">
-					<span class="field-label">Term</span>
-					<Select
-						bind:value={selectedTermNumber}
-						options={[
-							{ value: null, label: 'All terms' },
-							{ value: 1, label: 'Term 1' },
-							{ value: 2, label: 'Term 2' },
-							{ value: 3, label: 'Term 3' },
-							{ value: 4, label: 'Term 4' }
-						]}
-						onChange={() => loadAggregates()}
-						disabled={groupBy === 'term'}
-						ariaLabel="Term filter"
-					/>
-				</div>
-				<div class="field">
-					<span class="field-label">Course</span>
-					<Select
-						bind:value={selectedCourse}
-						options={[{ value: null, label: 'All courses' }, ...availableCourses.map((c) => ({ value: c, label: c }))]}
-						onChange={() => loadAggregates()}
-						disabled={groupBy === 'course'}
-						ariaLabel="Course filter"
-					/>
+					<label for="due-to">Period starts up to</label>
+					<input id="due-to" type="date" class="input-s" bind:value={to} onchange={loadAggregates} />
 				</div>
 			</div>
-			{#if selectedYear || selectedTermNumber || selectedCourse}
-				<div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 10px;">
+				<span class="muted" style="font-size: 12px;">Group totals include every status; the list on the right follows "Show dues".</span>
+				{#if from || statusFilter || to !== isoDate()}
 					<button class="btn-s btn-ghost-s btn-sm-s" onclick={clearFilters}>Clear filters</button>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 	</div>
 
+	<ErrorCallout message={error} />
+
 	{#if loading}
 		<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);"><span class="spinner spinner-lg"></span></div>
-	{:else if error}
-		<div class="callout danger">
-			<AlertCircle size={18} strokeWidth={1.6} />
-			<div class="callout-body">{error}</div>
-		</div>
-	{:else if aggregateCount === 0}
+	{:else if rows.length === 0 && !error}
 		<div class="card-s">
 			<div class="card-body-s">
 				<div class="empty-s">
 					<div class="glyph">∅</div>
 					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No dues found</div>
-					<div style="margin-top: 4px;">No outstanding dues match the selected filters.</div>
+					<div style="margin-top: 4px;">No dues match the selected dates.</div>
 				</div>
 			</div>
 		</div>
-	{:else}
+	{:else if rows.length > 0}
 		<div class="dues-split">
 			<aside class="dues-list-card">
 				<div class="dues-list-head">
-					<span class="dues-list-title">
-						{#if groupBy === 'course'}By course{:else if groupBy === 'year'}By year{:else}By term{/if}
-					</span>
-					<span class="dues-list-count">{aggregateCount}</span>
+					<span class="dues-list-title">By {groupBy}</span>
+					<span class="dues-list-count">{rows.length}</span>
 				</div>
 				<div class="dues-list-body">
-					{#each groups as g (g.key)}
-						{@const isSel = g.key === selectedKey}
-						<button type="button" class="dues-row" class:is-sel={isSel} onclick={() => selectGroup(g)}>
+					{#each rows as r (r.key)}
+						<button type="button" class="dues-row" class:is-sel={r.key === selectedKey} onclick={() => selectGroup(r.key)}>
 							<span class="dues-avatar">
 								{#if groupBy === 'course'}<Book size={14} strokeWidth={1.6} />
-								{:else if groupBy === 'year'}<Calendar size={14} strokeWidth={1.6} />
+								{:else if groupBy === 'month'}<Calendar size={14} strokeWidth={1.6} />
 								{:else}<Hash size={14} strokeWidth={1.6} />{/if}
 							</span>
 							<span class="dues-row-body">
-								<span class="dues-row-name">
-									{#if groupBy === 'course'}{initials(g.label) || g.label}<span class="muted-inline"> · </span>{/if}{g.label}
-								</span>
-								<span class="dues-row-meta">
-									<Users size={11} strokeWidth={1.6} /> {g.count} due{g.count !== 1 ? 's' : ''}{#if g.sub} · {g.sub}{/if}
-								</span>
+								<span class="dues-row-name">{groupLabel(r.key)}</span>
+								<span class="dues-row-meta"><Users size={11} strokeWidth={1.6} /> {r.count} due{r.count !== 1 ? 's' : ''} · billed <Money value={r.amount} mono={false} /></span>
 							</span>
-							<span class="dues-row-amount"><Money value={g.totalDue} mono={false} /></span>
+							<span class="dues-row-amount"><Money value={r.balance} mono={false} /></span>
 						</button>
 					{/each}
 				</div>
 			</aside>
 
 			<section class="dues-detail">
-				{#if selectedGroup}
+				{#if selectedRow}
 					<header class="dues-detail-head">
 						<div style="display: flex; gap: 14px; align-items: flex-start; flex: 1; min-width: 0;">
 							<span class="dues-avatar dues-avatar-lg">
 								{#if groupBy === 'course'}<Book size={20} strokeWidth={1.4} />
-								{:else if groupBy === 'year'}<Calendar size={20} strokeWidth={1.4} />
+								{:else if groupBy === 'month'}<Calendar size={20} strokeWidth={1.4} />
 								{:else}<Hash size={20} strokeWidth={1.4} />{/if}
 							</span>
 							<div style="min-width: 0; flex: 1;">
-								<h2 class="dues-detail-name">{selectedGroup.label}</h2>
+								<h2 class="dues-detail-name">{groupLabel(selectedRow.key)}</h2>
 								<p class="dues-detail-sub">
-									{selectedGroup.count} record{selectedGroup.count !== 1 ? 's' : ''}
-									{#if selectedGroup.sub} · {selectedGroup.sub}{/if}
+									{selectedRow.count} due{selectedRow.count !== 1 ? 's' : ''} · showing {statusFilterLabel().toLowerCase()}
+									{#if courseSummary}
+										<br />All time for this course: billed <Money value={courseSummary.amount} mono={false} />, paid <Money value={courseSummary.paid} mono={false} />,
+										discounts <Money value={courseSummary.discount} mono={false} />, balance <Money value={courseSummary.balance} mono={false} />
+										{#if courseSummary.overpaid > 0}, overpaid <Money value={courseSummary.overpaid} mono={false} />{/if}
+									{/if}
 								</p>
 							</div>
 						</div>
 						<div class="dues-detail-kpis">
 							<div>
-								<div class="kpi-label">Total due</div>
-								<div class="kpi-value" style="color: var(--danger); font-size: 22px;"><Money value={selectedGroup.totalDue} mono={false} /></div>
+								<div class="kpi-label">Balance</div>
+								<div class="kpi-value" style="color: var(--danger); font-size: 22px;"><Money value={selectedRow.balance} mono={false} /></div>
 							</div>
 							<div>
-								<div class="kpi-label">Records</div>
-								<div class="kpi-value" style="font-size: 22px;">{selectedGroup.count}</div>
+								<div class="kpi-label">Billed</div>
+								<div class="kpi-value" style="font-size: 22px;"><Money value={selectedRow.amount} mono={false} /></div>
 							</div>
-							<button class="btn-s btn-ghost-s btn-sm-s" onclick={printOne} disabled={printing} aria-label="Print this group">
+							<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => print([selectedRow!.key])} disabled={printing} aria-label="Print this group">
 								<Printer size={14} strokeWidth={1.6} /> Print
 							</button>
 						</div>
 					</header>
 
 					<div class="dues-detail-body">
-						{#if loadingDetails && !detailsData.has(selectedGroup.key)}
+						{#if loadingDetails && !details.has(selectedRow.key)}
 							<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
 						{:else if selectedDetails.length === 0}
-							<div class="callout info"><div class="callout-body">No matching records.</div></div>
+							<div class="callout info"><div class="callout-body">No {statusFilterLabel().toLowerCase()} dues in this group.</div></div>
 						{:else}
 							<div class="tbl-wrap">
 								<table class="tbl">
@@ -463,35 +352,38 @@
 										<tr>
 											<th>Student</th>
 											<th>Course</th>
-											<th>Year</th>
-											<th>Term</th>
-											<th class="num">Total</th>
+											<th>Period</th>
+											<th class="num">Amount</th>
 											<th class="num">Paid</th>
-											<th class="num">Due</th>
+											<th class="num">Discount</th>
+											<th class="num">Balance</th>
 											<th>Status</th>
 										</tr>
 									</thead>
 									<tbody>
-										{#each selectedDetails as due}
+										{#each selectedDetails as due (due.id)}
 											<tr>
 												<td>
-													<a href="/students/{due.studentId}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); font-family: var(--font-mono); font-size: 12px;">{due.studentName ?? `#${due.studentId}`}</a>
+													<a href="/students/{due.studentId}/dues" style="color: var(--accent); font-size: 12.5px;">{due.studentName ?? `#${due.studentId}`}</a>
+													<div class="muted" style="font-family: var(--font-mono); font-size: 11px;">{due.studentId}</div>
 												</td>
 												<td>{due.courseName}</td>
-												<td>{due.termYear}</td>
-												<td>{due.termNumber}</td>
-												<td class="num"><Money value={due.totalFee} /></td>
-												<td class="num"><Money value={due.amountPaid} /></td>
-												<td class="num strong" style="color: var(--danger);"><Money value={due.amountDue} /></td>
-												<td>
-													{#if due.status === 'PAID'}<Badge kind="ok">Paid</Badge>
-													{:else if due.status === 'PARTIALLY_PAID'}<Badge kind="warn">Partial</Badge>
-													{:else if due.status === 'STUDENT_LEFT_DUE_CANCELLED'}<Badge kind="neutral">Cancelled</Badge>
-													{:else}<Badge kind="danger">{due.status}</Badge>{/if}
-												</td>
+												<td>{formatPeriod(due.periodStart, due.periodEnd)}</td>
+												<td class="num"><Money value={due.amount} /></td>
+												<td class="num"><Money value={due.paidAmount} /></td>
+												<td class="num"><Money value={due.discountAmount} /></td>
+												<td class="num strong" style:color={due.balance > 0 ? 'var(--danger)' : undefined}><Money value={due.balance} /></td>
+												<td><StatusBadge status={due.status} /></td>
 											</tr>
 										{/each}
 									</tbody>
+									<tfoot>
+										<tr>
+											<td colspan="6" class="muted">{selectedDetails.length} shown</td>
+											<td class="num strong"><Money value={detailBalance} /></td>
+											<td></td>
+										</tr>
+									</tfoot>
 								</table>
 							</div>
 						{/if}
@@ -503,67 +395,59 @@
 		</div>
 	{/if}
 
-	<!-- Print-only block: rendered only when printing, swaps in a paper-friendly layout -->
-	{#if printGroups}
+	<!-- Print-only block: rendered only when printing -->
+	{#if printKeys}
 		<div class="dues-print">
 			<div class="print-header">
 				<div>
 					<div class="print-brand">Revathi <em>Arts</em> &amp; Music School</div>
 					<div class="print-title">
-						Outstanding dues
-						{#if printGroups.length === 1}— {printGroups[0].label}{/if}
+						Dues by {groupBy}
+						{#if printKeys.length === 1}— {groupLabel(printKeys[0])}{/if}
 					</div>
-					<div class="print-meta">
-						{statusFilterLabel(selectedStatuses)}
-						{#if selectedYear} · Year {selectedYear}{/if}
-						{#if selectedTermNumber} · Term {selectedTermNumber}{/if}
-						{#if selectedCourse} · Course {selectedCourse}{/if}
-						· Generated {todayStr()}
-					</div>
+					<div class="print-meta">{statusFilterLabel()} · {rangeLabel()} · Generated {formatDate(isoDate())}</div>
 				</div>
 				<div class="print-totals">
-					<div><span class="print-totals-label">Records</span> {printGroups.reduce((s, g) => s + g.count, 0)}</div>
-					<div><span class="print-totals-label">Total due</span> <Money value={printGroups.reduce((s, g) => s + g.totalDue, 0)} mono={false} /></div>
+					<div><span class="print-totals-label">Dues</span> {printKeys.reduce((s, k) => s + (details.get(k)?.length ?? 0), 0)}</div>
+					<div><span class="print-totals-label">Balance</span> <Money value={printKeys.reduce((s, k) => s + (details.get(k) ?? []).reduce((a, d) => a + d.balance, 0), 0)} mono={false} /></div>
 				</div>
 			</div>
 
-			{#each printGroups as g (g.key)}
-				{@const rows = detailsData.get(g.key) ?? []}
+			{#each printKeys as k (k)}
+				{@const list = details.get(k) ?? []}
+				{@const sub = list.reduce((a, d) => a + d.balance, 0)}
 				<section class="print-section">
 					<h3 class="print-section-title">
-						{g.label}
-						{#if g.sub}<span class="print-section-sub">· {g.sub}</span>{/if}
-						<span class="print-section-amount"><Money value={g.totalDue} mono={false} /></span>
+						{groupLabel(k)}
+						<span class="print-section-amount"><Money value={sub} mono={false} /></span>
 					</h3>
 					<table class="print-tbl">
 						<thead>
 							<tr>
 								<th>Student</th>
 								<th>Course</th>
-								<th>Year</th>
-								<th>Term</th>
-								<th class="num">Total</th>
+								<th>Period</th>
+								<th class="num">Amount</th>
 								<th class="num">Paid</th>
-								<th class="num">Due</th>
+								<th class="num">Balance</th>
 								<th>Status</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each rows as due}
+							{#each list as due}
 								<tr>
-									<td>{due.studentName ?? `#${due.studentId}`}</td>
+									<td>{due.studentName ?? `#${due.studentId}`} ({due.studentId})</td>
 									<td>{due.courseName}</td>
-									<td>{due.termYear}</td>
-									<td>{due.termNumber}</td>
-									<td class="num"><Money value={due.totalFee} /></td>
-									<td class="num"><Money value={due.amountPaid} /></td>
-									<td class="num"><Money value={due.amountDue} /></td>
-									<td>{statusLabel(due.status)}</td>
+									<td>{formatPeriod(due.periodStart, due.periodEnd)}</td>
+									<td class="num"><Money value={due.amount} /></td>
+									<td class="num"><Money value={due.paidAmount + due.discountAmount} /></td>
+									<td class="num"><Money value={due.balance} /></td>
+									<td>{STATUS_LABEL[due.status]}</td>
 								</tr>
 							{/each}
 							<tr class="print-subtotal">
-								<td colspan="6" style="text-align: right;">Subtotal</td>
-								<td class="num"><Money value={g.totalDue} mono={false} /></td>
+								<td colspan="5" style="text-align: right;">Subtotal</td>
+								<td class="num"><Money value={sub} mono={false} /></td>
 								<td></td>
 							</tr>
 						</tbody>
@@ -689,7 +573,6 @@
 		flex-shrink: 0;
 		margin-left: 8px;
 	}
-	.muted-inline { color: var(--fg-muted); font-weight: 400; }
 
 	.dues-detail {
 		display: flex;
@@ -790,7 +673,6 @@
 			align-items: baseline;
 			gap: 8px;
 		}
-		.print-section-sub { color: #777; font-size: 12px; }
 		.print-section-amount { margin-left: auto; color: #b00020; }
 		.print-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.print-tbl th, .print-tbl td {
