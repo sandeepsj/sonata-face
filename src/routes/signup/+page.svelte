@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { authStore } from '$lib/stores/authStore';
+	import { authStore, landingPath } from '$lib/stores/authStore';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-svelte';
@@ -16,7 +16,7 @@
 
 	onMount(() => {
 		paletteStore.init();
-		if ($authStore.isAuthenticated) goto('/students');
+		if ($authStore.isAuthenticated) goto(landingPath($authStore.user?.routes ?? []));
 	});
 
 	async function handleSignup(e: Event) {

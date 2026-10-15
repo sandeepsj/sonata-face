@@ -1,6 +1,6 @@
--- Wipe student-related data from sonata-local.
--- Keeps: courses, fee_structures, users (auth), and any other reference tables.
--- Clears: payments, fee_dues_tracker, student_sessions, students, plus any join tables.
+-- Wipe student-related data from a local database.
+-- Keeps: courses, fee structures, the fee timeline, users and roles.
+-- Clears: discounts, payments, derived dues (fee_due), waivers, rebuild jobs, sessions, students.
 --
 -- Run:
 --   PGPASSWORD=sonata123 psql -h localhost -U sandeepsj -d sonata-local -f scripts/wipe.sql
@@ -13,11 +13,14 @@ BEGIN;
 DO $$
 DECLARE
     candidate_tables text[] := ARRAY[
-        'payment_discount', 'payment_discounts',
-        'payment', 'payments',
-        'fee_dues_tracker', 'fee_dues',
-        'student_session', 'student_sessions',
-        'student', 'students'
+        'discounts',
+        'payments',
+        'due_waiver',
+        'fee_due',
+        'dues_rebuild_job',
+        'fee_dues_tracker',
+        'student_sessions',
+        'student'
     ];
     t text;
     found_table text;
@@ -36,5 +39,5 @@ END $$;
 
 COMMIT;
 
--- After this runs, courses + fee_structures + users remain untouched.
+-- After this runs, courses, fee structures, the timeline, users and roles remain untouched.
 -- The seed script (scripts/seed.mjs) will repopulate the cleared tables.

@@ -2,7 +2,8 @@
 	import { Save, X, ArrowLeft, RotateCcw } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { StudentService, currentStudentStore } from '$lib';
+	import { api, currentStudentStore, errorMessage, fieldErrors } from '$lib';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 
 	$: currentStudentState = $currentStudentStore;
 	$: student = currentStudentState.student;
@@ -24,6 +25,7 @@
 	let formInitialized = false;
 	let saving = false;
 	let errors: Record<string, string> = {};
+	let formError = '';
 	let changedFieldsCount = 0;
 
 	$: if (student && student !== null && !formInitialized) {
@@ -33,7 +35,7 @@
 			school: student.school || '',
 			contactNo: student.contactNo || '',
 			address: student.address || '',
-			pinCode: student.pinCode || '',
+			pinCode: student.pinCode != null ? String(student.pinCode) : '',
 			dob: student.dob || '',
 			status: student.status || 'active',
 			remarks: student.remarks || ''
@@ -82,17 +84,19 @@
 	async function saveStudent() {
 		if (!validateForm()) return;
 		saving = true;
+		formError = '';
 		try {
 			const changes = getChangedFields();
 			if (Object.keys(changes).length === 0) {
 				goto(`/students/${studentId}`);
 				return;
 			}
-			const updated = await StudentService.updateStudent(Number(studentId), changes);
+			const updated = await api.students.update(Number(studentId), changes);
 			currentStudentStore.updateStudent(updated);
 			goto(`/students/${studentId}`);
 		} catch (error) {
-			console.error('Error saving student:', error);
+			formError = errorMessage(error, 'Failed to save student');
+			errors = { ...errors, ...fieldErrors(error) };
 		} finally {
 			saving = false;
 		}
@@ -102,6 +106,8 @@
 		goto(`/students/${studentId}`);
 	}
 </script>
+
+{#if formError}<div style="margin-bottom: 14px;"><ErrorCallout message={formError} /></div>{/if}
 
 <div class="card-s" style="margin-bottom: 18px; position: sticky; top: 70px; z-index: 5;">
 	<div class="card-body-s" style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;">

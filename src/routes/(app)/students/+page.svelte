@@ -18,7 +18,7 @@
 		Calendar,
 		User
 	} from 'lucide-svelte';
-	import { StudentService, type Student, type StudentAdvancedSearchParams } from '$lib';
+	import { api, errorMessage, canAccess, type Student, type StudentSearchParams } from '$lib';
 	import { recentsStore } from '$lib/stores/recentsStore';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/Badge.svelte';
@@ -34,7 +34,8 @@
 	let searchQuery = $state('');
 	let showAdvancedSearch = $state(false);
 
-	let advancedSearchParams: StudentAdvancedSearchParams = $state({
+	type SearchForm = StudentSearchParams & { admissionDate?: string; page?: number; size?: number };
+	let advancedSearchParams: SearchForm = $state({
 		name: '',
 		contactNo: '',
 		admissionNo: '',
@@ -74,7 +75,7 @@
 	let activeAdvancedFiltersCount = $derived(getActiveAdvancedFiltersCount());
 
 	function navigateToStudent(student: Student) {
-		const studentId = student.admissionNo || student.admissionId;
+		const studentId = student.admissionNo;
 		if (!studentId) return;
 		recentsStore.push({
 			id: String(studentId),
@@ -92,15 +93,28 @@
 			const hasQuickSearch = searchQuery && searchQuery.trim() !== '';
 			let response;
 			if (hasQuickSearch || hasAdvancedSearch) {
-				const searchParams: StudentAdvancedSearchParams = { page: p, size, ...advancedSearchParams };
+				const searchParams: SearchForm = { page: p, size, ...advancedSearchParams };
 				if (hasQuickSearch) searchParams.name = searchQuery.trim();
 				Object.keys(searchParams).forEach((k) => {
-					const v = searchParams[k as keyof StudentAdvancedSearchParams];
-					if (v === undefined || v === null || v === '') delete searchParams[k as keyof StudentAdvancedSearchParams];
+					const v = searchParams[k as keyof SearchForm];
+					if (v === undefined || v === null || v === '') delete searchParams[k as keyof SearchForm];
 				});
-				response = await StudentService.advancedSearchStudents(searchParams);
+				// /search returns every match; page through them here
+				const { page: _p, size: _s, admissionDate, ...filters } = searchParams;
+				if (admissionDate) {
+					filters.admissionDateFrom = admissionDate;
+					filters.admissionDateTo = admissionDate;
+				}
+				const all = await api.students.search(filters);
+				response = {
+					content: all.slice(p * size, (p + 1) * size),
+					totalElements: all.length,
+					totalPages: Math.ceil(all.length / size),
+					number: p,
+					size
+				};
 			} else {
-				response = await StudentService.getStudents({ page: p, size });
+				response = await api.students.page(p, size);
 			}
 			students = response.content;
 			totalElements = response.totalElements;
@@ -108,7 +122,7 @@
 			currentPage = response.number;
 			pageSize = response.size;
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to fetch students';
+			error = errorMessage(err, 'Failed to fetch students');
 			students = [];
 			totalElements = 0;
 			totalPages = 0;
@@ -177,7 +191,7 @@
 				<p class="page-subtitle">Master list of admissions across every programme.</p>
 			</div>
 			<div style="display: flex; gap: 8px; align-items: center;">
-				<button class="btn-s btn-primary-s" onclick={() => goto('/students/add')}>
+				<button class="btn-s btn-primary-s" onclick={() => goto('/students/add')} hidden={!$canAccess('/api/students/**', 'write')}>
 					<Plus size={14} strokeWidth={1.8} />
 					Add student
 				</button>
@@ -325,7 +339,7 @@
 					{searchQuery || activeAdvancedFiltersCount > 0 ? 'Try a different filter.' : 'Add your first student to begin.'}
 				</div>
 				<div style="margin-top: 14px;">
-					<button class="btn-s btn-primary-s" onclick={() => goto('/students/add')}>
+					<button class="btn-s btn-primary-s" onclick={() => goto('/students/add')} hidden={!$canAccess('/api/students/**', 'write')}>
 						<Plus size={14} strokeWidth={1.8} /> Add student
 					</button>
 				</div>
@@ -343,7 +357,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each students as student, i (student.admissionNo || student.admissionId || `s-${i}`)}
+					{#each students as student, i (student.admissionNo || `s-${i}`)}
 						<tr class="clickable" onclick={() => navigateToStudent(student)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && navigateToStudent(student)}>
 							<td>
 								<div class="row-name">
@@ -356,7 +370,7 @@
 									</div>
 								</div>
 							</td>
-							<td class="id">{student.admissionNo || student.admissionId || `#${i + 1}`}</td>
+							<td class="id">{student.admissionNo || `#${i + 1}`}</td>
 							<td>
 								{#if student.className}
 									<Badge kind="neutral">{student.className}</Badge>

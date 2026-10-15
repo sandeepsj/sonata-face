@@ -1,105 +1,138 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { currentStudentStore } from '$lib/stores/currentStudentStore';
-	import { PaymentService } from '$lib/api/paymentService';
-	import type { Student, Payment } from '$lib';
-	import { Trash2, AlertTriangle, AlertCircle, X } from 'lucide-svelte';
-	import Badge from '$lib/components/Badge.svelte';
+	import { page } from '$app/stores';
+	import { Trash2, AlertTriangle, ArrowRightLeft } from 'lucide-svelte';
+	import { api, canAccess, currentStudentStore, errorMessage, fieldErrors, toast } from '$lib';
+	import type { Course, Due, Payment } from '$lib/api/types';
+	import { formatDate } from '$lib/utils/format';
+	import { amountCleared, conversionNote, paymentPeriodLabel } from '$lib/utils/payments';
 	import Money from '$lib/components/Money.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
+	import FieldError from '$lib/components/FieldError.svelte';
+	import PeriodPicker from '$lib/components/PeriodPicker.svelte';
 
-	export let student: Student;
+	let studentId = $derived(Number($page.params.id));
+	let st = $derived($currentStudentStore);
+	let activePayments = $derived(st.payments.data.filter((p) => p.isActive));
+	let dues = $derived(st.dues.data);
+	let canWrite = $derived($canAccess('/api/payments/**', 'write'));
 
-	let error: string | null = null;
-	let showConfirmDialog = false;
-	let selectedPayment: Payment | null = null;
-	let deactivating = false;
+	// deactivate
+	let toDeactivate: Payment | null = $state(null);
+	let deactivating = $state(false);
+	let deactivateError = $state('');
 
-	$: currentStudent = student || $currentStudentStore.student;
-	$: studentId = currentStudent?.admissionNo;
-	$: activePayments = $currentStudentStore.payments.data.filter((p) => p.isActive);
-	$: dues = $currentStudentStore.dues.data;
+	// convert
+	let toConvert: Payment | null = $state(null);
+	let courses: Course[] = $state([]);
+	let convertCourse = $state('');
+	let convertPeriod = $state('');
+	let convertDue: Due | null = $state(null);
+	let converting = $state(false);
+	let convertError = $state('');
+	let convertErrors: Record<string, string> = $state({});
 
-	onMount(async () => {
-		if (studentId) {
-			await Promise.all([
-				currentStudentStore.fetchPayments(studentId, true),
-				currentStudentStore.fetchDues(studentId, true)
-			]);
-		}
+	let sessionCourses = $derived([...new Set(st.sessions.data.map((s) => s.course.name))]);
+	let convertOptions = $derived(courses.filter((c) => sessionCourses.includes(c.name)));
+
+	$effect(() => {
+		const id = studentId;
+		if (!id) return;
+		currentStudentStore.fetchPayments(id, true);
+		currentStudentStore.fetchDues(id, true);
+		currentStudentStore.fetchSessions(id);
 	});
 
-	function openConfirmDialog(p: Payment) {
-		selectedPayment = p;
-		showConfirmDialog = true;
-	}
-	function closeConfirmDialog() {
-		showConfirmDialog = false;
-		selectedPayment = null;
-	}
-
-	async function handleDeactivatePayment() {
-		if (!selectedPayment || !studentId) return;
+	async function deactivate() {
+		if (!toDeactivate) return;
 		deactivating = true;
-		error = null;
+		deactivateError = '';
 		try {
-			await PaymentService.deactivatePayment(selectedPayment.id);
-			await Promise.all([
-				currentStudentStore.fetchPayments(studentId, true),
-				currentStudentStore.fetchDues(studentId, true)
-			]);
-			closeConfirmDialog();
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to deactivate payment';
+			await api.payments.deactivate(toDeactivate.id);
+			toast.ok(toDeactivate.paymentType === 'REGULAR' ? 'Payment deactivated. Dues are being recalculated.' : 'Payment deactivated');
+			toDeactivate = null;
+			await currentStudentStore.refreshAfterWrite(studentId);
+		} catch (e) {
+			deactivateError = errorMessage(e, 'Failed to deactivate payment');
+			currentStudentStore.fetchPayments(studentId, true);
 		} finally {
 			deactivating = false;
 		}
 	}
 
-	function getPaymentDetails(p: Payment) {
-		if (p.feeStructure) {
-			const m = dues.find((d) => d.feeStructureId === p.feeStructure?.id);
-			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || p.courseName };
+	async function openConvert(p: Payment) {
+		toConvert = p;
+		convertCourse = '';
+		convertPeriod = '';
+		convertDue = null;
+		convertError = '';
+		convertErrors = {};
+		try {
+			courses = await api.courses.list();
+		} catch {
+			courses = [];
 		}
-		return { termYear: null, termNumber: null, courseName: p.courseName };
+		convertCourse =
+			p.courseName && convertOptions.some((c) => c.name === p.courseName)
+				? p.courseName
+				: convertOptions.length === 1
+					? convertOptions[0].name
+					: '';
 	}
 
-	function formatDate(s: string): string {
-		try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-		catch { return s; }
+	async function convert() {
+		if (!toConvert) return;
+		convertErrors = {};
+		convertError = '';
+		if (!convertCourse) convertErrors.courseName = 'Choose a course';
+		if (!convertPeriod) convertErrors.periodDate = 'Choose the period this payment was for';
+		if (convertDue && amountCleared(toConvert) > convertDue.balance)
+			convertErrors.periodDate = `This payment settles ${amountCleared(toConvert)} but the period's balance is ${convertDue.balance}`;
+		if (Object.keys(convertErrors).length) return;
+		converting = true;
+		try {
+			await api.payments.convertToCourseFee(toConvert.id, {
+				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined,
+				periodDate: convertPeriod
+			});
+			toast.ok('Converted to a course fee. Dues are being recalculated.');
+			toConvert = null;
+			await currentStudentStore.refreshAfterWrite(studentId);
+		} catch (e) {
+			convertError = errorMessage(e, 'Failed to convert payment');
+			convertErrors = fieldErrors(e);
+		} finally {
+			converting = false;
+		}
 	}
 </script>
 
 <div class="section-row">
 	<div>
 		<h2 class="section-title-s">Manage <em>payments</em></h2>
-		<div style="color: var(--fg-muted); font-size: 13px;">Deactivate payment records that were created in error.</div>
+		<div style="color: var(--fg-muted); font-size: 13px;">Deactivate payments entered by mistake, or turn an additional payment into a course fee.</div>
 	</div>
 </div>
 
 <div class="callout" style="margin-bottom: 18px;">
 	<AlertTriangle size={18} strokeWidth={1.6} />
 	<div>
-		<div class="callout-title">This action is permanent</div>
-		<div class="callout-body">Deactivating a regular payment will trigger dues recalculation.</div>
+		<div class="callout-title">Deactivation is permanent</div>
+		<div class="callout-body">Payments are never deleted, only deactivated. Deactivating or converting a payment recalculates the student's dues.</div>
 	</div>
 </div>
 
-{#if error}
-	<div class="callout danger" style="margin-bottom: 18px;">
-		<AlertCircle size={18} strokeWidth={1.6} />
-		<div class="callout-body">{error}</div>
-	</div>
-{/if}
-
-{#if $currentStudentStore.payments.loading}
-	<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);"><span class="spinner spinner-lg"></span></div>
+{#if st.payments.loading && st.payments.data.length === 0}
+	<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
+{:else if st.payments.error}
+	<ErrorCallout message={st.payments.error} />
 {:else if activePayments.length === 0}
 	<div class="card-s">
 		<div class="card-body-s">
 			<div class="empty-s">
 				<div class="glyph">∅</div>
 				<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No active payments</div>
-				<div style="margin-top: 4px;">There are no active payment records for this student.</div>
 			</div>
 		</div>
 	</div>
@@ -112,48 +145,38 @@
 			<table class="tbl">
 				<thead>
 					<tr>
-						<th>Date</th>
-						<th>Label</th>
-						<th>Type</th>
-						<th>Course</th>
-						<th>Year / Term</th>
-						<th>Remarks</th>
-						<th style="text-align: right;">Paid</th>
-						<th style="text-align: right;">Discount</th>
-						<th style="text-align: right;">Total</th>
-						<th style="text-align: center;">Action</th>
+						<th>Date</th><th>Label</th><th>Type</th><th>Course</th><th>Period</th>
+						<th style="text-align: right;">Paid</th><th style="text-align: right;">Discount</th><th style="text-align: right;">Total</th>
+						{#if canWrite}<th style="text-align: right;">Actions</th>{/if}
 					</tr>
 				</thead>
 				<tbody>
-					{#each activePayments as payment}
-						{@const details = getPaymentDetails(payment)}
+					{#each activePayments as p (p.id)}
 						<tr>
-							<td><div class="strong">{formatDate(payment.date)}</div></td>
-							<td>{payment.label || '—'}</td>
+							<td class="strong">{formatDate(p.date)}</td>
 							<td>
-								{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
-								{:else if payment.paymentType === 'ADDITIONAL'}<Badge kind="accent">Additional</Badge>
-								{:else}<Badge kind="neutral">{payment.paymentType}</Badge>{/if}
+								{p.label || '—'}
+								{#if p.remarks}<div class="muted" style="font-size: 11px;">{p.remarks}</div>{/if}
+								{#if conversionNote(p)}<div class="muted" style="font-size: 11px;">{conversionNote(p)}</div>{/if}
 							</td>
-							<td>{details.courseName || '—'}</td>
-							<td>
-								{#if details.termYear && details.termNumber}
-									<div>Year {details.termYear} · <span class="muted">Term {details.termNumber}</span></div>
-								{:else if payment.feeStructure?.termName}
-									<div>{payment.feeStructure.termName}</div>
-								{:else}
-									<span class="muted">—</span>
-								{/if}
-							</td>
-							<td class="muted" style="max-width: 200px; white-space: normal;">{payment.remarks || '—'}</td>
-							<td class="num"><Money value={payment.amountPaid} /></td>
-							<td class="num"><Money value={payment.discountAmount || 0} /></td>
-							<td class="num strong"><Money value={payment.amountPaid + (payment.discountAmount || 0)} /></td>
-							<td style="text-align: center;">
-								<button class="btn-s btn-secondary-s btn-sm-s" style="color: var(--danger); border-color: var(--danger-soft);" on:click={() => openConfirmDialog(payment)} disabled={deactivating}>
-									<Trash2 size={12} strokeWidth={1.8} /> Deactivate
-								</button>
-							</td>
+							<td><StatusBadge status={p.paymentType} /></td>
+							<td>{p.courseName || '—'}</td>
+							<td>{paymentPeriodLabel(p, dues)}</td>
+							<td class="num" style="text-align: right;"><Money value={p.amountPaid} /></td>
+							<td class="num" style="text-align: right;"><Money value={p.discountAmount || 0} /></td>
+							<td class="num strong" style="text-align: right;"><Money value={amountCleared(p)} /></td>
+							{#if canWrite}
+								<td style="text-align: right; white-space: nowrap;">
+									{#if p.paymentType === 'ADDITIONAL'}
+										<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => openConvert(p)} title="Staff recorded this as additional by mistake">
+											<ArrowRightLeft size={12} strokeWidth={1.8} /> Convert to course fee
+										</button>
+									{/if}
+									<button class="btn-s btn-secondary-s btn-sm-s" style="color: var(--danger); border-color: var(--danger-soft);" onclick={() => { toDeactivate = p; deactivateError = ''; }}>
+										<Trash2 size={12} strokeWidth={1.8} /> Deactivate
+									</button>
+								</td>
+							{/if}
 						</tr>
 					{/each}
 				</tbody>
@@ -162,55 +185,50 @@
 	</div>
 {/if}
 
-{#if showConfirmDialog && selectedPayment}
-	{@const details = getPaymentDetails(selectedPayment)}
-	<div class="modal-veil" on:click={closeConfirmDialog} on:keydown={(e) => e.key === 'Escape' && closeConfirmDialog()} role="presentation">
-		<div class="modal-s" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
-			<div class="modal-head">
-				<div>
-					<h3 class="modal-title-s">Confirm <em style="color: var(--danger); font-style: italic;">deactivation</em></h3>
-					<div class="modal-sub">This action cannot be undone.</div>
-				</div>
-				<button class="btn-s btn-ghost-s btn-icon-s" on:click={closeConfirmDialog} disabled={deactivating} aria-label="Close"><X size={16} strokeWidth={1.6} /></button>
-			</div>
-			<div class="modal-body-s">
-				<div class="card-s" style="background: var(--bg-elev); margin-bottom: 14px;">
-					<div class="card-body-s">
-						<div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
-							<div style="display: flex; justify-content: space-between;"><span class="muted">Date</span><span class="strong">{formatDate(selectedPayment.date)}</span></div>
-							<div style="display: flex; justify-content: space-between;"><span class="muted">Label</span><span class="strong">{selectedPayment.label || '—'}</span></div>
-							<div style="display: flex; justify-content: space-between; align-items: center;">
-								<span class="muted">Type</span>
-								{#if selectedPayment.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
-								{:else if selectedPayment.paymentType === 'ADDITIONAL'}<Badge kind="accent">Additional</Badge>
-								{:else}<Badge kind="neutral">{selectedPayment.paymentType}</Badge>{/if}
-							</div>
-							<div style="display: flex; justify-content: space-between;"><span class="muted">Course</span><span class="strong">{details.courseName || '—'}</span></div>
-							{#if details.termYear && details.termNumber}
-								<div style="display: flex; justify-content: space-between;"><span class="muted">Year / Term</span><span class="strong">Year {details.termYear} · Term {details.termNumber}</span></div>
-							{:else if selectedPayment.feeStructure?.termName}
-								<div style="display: flex; justify-content: space-between;"><span class="muted">Term</span><span class="strong">{selectedPayment.feeStructure.termName}</span></div>
-							{/if}
-							<div style="display: flex; justify-content: space-between;"><span class="muted">Amount paid</span><span class="strong"><Money value={selectedPayment.amountPaid} /></span></div>
-							{#if selectedPayment.discountAmount > 0}
-								<div style="display: flex; justify-content: space-between;"><span class="muted">Discount</span><span><Money value={selectedPayment.discountAmount} /></span></div>
-							{/if}
-						</div>
-					</div>
-				</div>
-				{#if selectedPayment.paymentType === 'REGULAR'}
-					<div class="callout">
-						<AlertTriangle size={16} strokeWidth={1.6} />
-						<div class="callout-body">This is a regular payment. Deactivation will trigger dues recalculation.</div>
-					</div>
-				{/if}
-			</div>
-			<div class="modal-foot">
-				<button type="button" class="btn-s btn-secondary-s" on:click={closeConfirmDialog} disabled={deactivating}>Cancel</button>
-				<button type="button" class="btn-s btn-danger-s" on:click={handleDeactivatePayment} disabled={deactivating}>
-					{#if deactivating}<span class="spinner"></span>Deactivating…{:else}<Trash2 size={14} strokeWidth={1.8} /> Deactivate{/if}
-				</button>
+<Modal open={toDeactivate !== null} title="Deactivate payment?" subtitle="This can't be undone." busy={deactivating} onClose={() => (toDeactivate = null)}>
+	{#if toDeactivate}
+		<div class="card-s" style="background: var(--bg-elev); margin-bottom: 14px;">
+			<div class="card-body-s" style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Date</span><span class="strong">{formatDate(toDeactivate.date)}</span></div>
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Label</span><span class="strong">{toDeactivate.label}</span></div>
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Type</span><StatusBadge status={toDeactivate.paymentType} /></div>
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Course · period</span><span class="strong">{toDeactivate.courseName || '—'} · {paymentPeriodLabel(toDeactivate, dues)}</span></div>
+				<div style="display: flex; justify-content: space-between;"><span class="muted">Paid + discount</span><span class="strong"><Money value={toDeactivate.amountPaid} /> + <Money value={toDeactivate.discountAmount} /></span></div>
 			</div>
 		</div>
-	</div>
-{/if}
+		{#if toDeactivate.paymentType === 'REGULAR'}
+			<div class="callout"><div class="callout-body">The period's balance goes back up by the amount paid plus discounts.</div></div>
+		{/if}
+		<div style="margin-top: 12px;"><ErrorCallout message={deactivateError} /></div>
+	{/if}
+	{#snippet footer()}
+		<button class="btn-s btn-secondary-s" onclick={() => (toDeactivate = null)} disabled={deactivating}>Cancel</button>
+		<button class="btn-s btn-danger-s" onclick={deactivate} disabled={deactivating}>{#if deactivating}<span class="spinner"></span>{/if}Deactivate</button>
+	{/snippet}
+</Modal>
+
+<Modal open={toConvert !== null} title="Convert to course fee" subtitle={toConvert ? `"${toConvert.label}" · ${formatDate(toConvert.date)} · settles ₹${amountCleared(toConvert)}` : ''} size="lg" busy={converting} onClose={() => (toConvert = null)}>
+	{#if toConvert}
+		<div style="display:flex; flex-direction:column; gap: 14px;">
+			<div class="callout info"><div class="callout-body">The payment keeps its amount, date, discounts and remarks. It becomes a course fee for the chosen period, and the conversion is recorded with your name.</div></div>
+			<div class="field">
+				<label for="cv-course">Course *</label>
+				<select id="cv-course" class="input-s" bind:value={convertCourse} disabled={converting}>
+					<option value="">Choose a course…</option>
+					{#each convertOptions as c}<option value={c.name}>{c.name}</option>{/each}
+				</select>
+				<FieldError errors={convertErrors} field="courseName" />
+			</div>
+			<div class="field">
+				<span class="kpi-label">Period *</span>
+				<PeriodPicker {studentId} courseName={convertCourse} bind:value={convertPeriod} bind:due={convertDue} disabled={converting} />
+				<FieldError errors={convertErrors} field="periodDate" />
+			</div>
+			<ErrorCallout message={convertError} />
+		</div>
+	{/if}
+	{#snippet footer()}
+		<button class="btn-s btn-secondary-s" onclick={() => (toConvert = null)} disabled={converting}>Cancel</button>
+		<button class="btn-s btn-primary-s" onclick={convert} disabled={converting}>{#if converting}<span class="spinner"></span>{/if}Convert</button>
+	{/snippet}
+</Modal>

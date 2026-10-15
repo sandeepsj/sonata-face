@@ -5,11 +5,16 @@
 	import { page } from '$app/stores';
 	import favicon from '$lib/assets/final.png';
 	import '../app.css';
-	import { authStore } from '$lib/stores/authStore';
-	import { setAuthFunctions, API_CONFIG } from '$lib/api/config';
-	import { HeartbeatService } from '$lib/api/heartbeatService';
+	import { authStore, landingPath } from '$lib/stores/authStore';
+	import { platform } from '$lib/api/client';
+	import { config as appConfig } from '$lib/config';
+	import Toaster from '$lib/components/Toaster.svelte';
 
 	let { children } = $props();
+
+	// Restore the session and wire the API client (token, refresh, 401/403 handling) before any
+	// child page mounts: children's onMount runs before this layout's, and they make API calls.
+	if (browser) authStore.init();
 	let currentTheme = $state('light');
 	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 	let serverDown = $state(false);
@@ -42,7 +47,7 @@
 	}
 
 	async function handleHeartbeat() {
-		const success = await HeartbeatService.ping();
+		const success = await platform.heartbeat();
 		
 		if (success) {
 			// Reset failure count and close modal if server is back
@@ -68,7 +73,7 @@
 		handleHeartbeat();
 
 		// Set up interval to ping every 25 seconds
-		heartbeatInterval = setInterval(handleHeartbeat, API_CONFIG.HEARTBEAT_INTERVAL);
+		heartbeatInterval = setInterval(handleHeartbeat, appConfig.heartbeatIntervalMs);
 	}
 
 	function stopHeartbeat() {
@@ -101,14 +106,6 @@
 	onMount(() => {
 		loadThemeFromStorage();
 		
-		// Initialize auth store from localStorage
-		authStore.init();
-
-		// Set auth functions for API config to use
-		setAuthFunctions(
-			() => authStore.getAccessToken(),
-			() => authStore.refreshToken()
-		);
 
 		// Start heartbeat
 		startHeartbeat();
@@ -126,7 +123,7 @@
 				}
 				// Redirect to students if authenticated and on login/signup
 				else if (isAuthenticated && isPublicRoute) {
-					goto('/students');
+					goto(landingPath($authStore.user?.routes ?? []));
 				}
 			}
 		});
@@ -154,6 +151,8 @@
 </svelte:head>
 
 {@render children?.()}
+
+<Toaster />
 
 <!-- Server Down Modal -->
 {#if serverDown}

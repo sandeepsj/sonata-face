@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The `hidden` attribute must win over component display rules (e.g. .btn-s, .field), since it gates write actions */
+[hidden] {
+	display: none !important;
+}
+
 /* ============================================================
    Sonata — Music School OS (Revathi Arts)
    Editorial warm minimal design system

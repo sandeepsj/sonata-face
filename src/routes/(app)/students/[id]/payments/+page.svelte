@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Payment, Student } from '$lib';
-	import { currentStudentStore, calculateAmountCleared, formatPaymentType } from '$lib';
+	import type { Student } from '$lib';
+	import { currentStudentStore } from '$lib';
+	import { formatDate, formatDateTime } from '$lib/utils/format';
+	import { amountCleared as calculateAmountCleared, conversionNote, paymentPeriodLabel } from '$lib/utils/payments';
 	import {
 		AlertCircle,
 		Calendar,
@@ -56,22 +58,6 @@
 		expandedPaymentIds = expandedPaymentIds;
 	}
 
-	function getPaymentDetails(p: Payment) {
-		if (p.feeStructure) {
-			const m = dues.find((d) => d.feeStructureId === p.feeStructure?.id);
-			if (m) return { termYear: m.termYear, termNumber: m.termNumber, courseName: m.courseName || p.courseName };
-		}
-		return { termYear: null, termNumber: null, courseName: p.courseName };
-	}
-
-	function formatDate(d: string): string {
-		try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-		catch { return d; }
-	}
-	function formatDateTime(d: string): string {
-		try { return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-		catch { return d; }
-	}
 </script>
 
 <div class="section-row">
@@ -110,9 +96,8 @@
 			<label for="payment-type-filter">Payment type</label>
 			<select id="payment-type-filter" class="select-s" bind:value={selectedPaymentType}>
 				<option value="ALL">All types</option>
-				<option value="REGULAR">Term payments</option>
+				<option value="REGULAR">Course fees</option>
 				<option value="ADDITIONAL">Additional payments</option>
-				<option value="OTHER">Other payments</option>
 			</select>
 		</div>
 	</div>
@@ -146,7 +131,6 @@
 			{@const amountCleared = calculateAmountCleared(payment)}
 			{@const totalDiscount = payment.discountAmount || 0}
 			{@const hasDiscounts = payment.discounts && payment.discounts.length > 0}
-			{@const pd = getPaymentDetails(payment)}
 
 			<div class="card-s" style="border-left: 4px solid {payment.isActive ? 'var(--ok)' : 'var(--border-strong)'};">
 				<div class="card-body-s">
@@ -156,22 +140,22 @@
 								<h3 style="font-family: var(--font-serif); font-weight: 500; font-size: 17px; margin: 0;">
 									{payment.label || `Payment #${payment.id}`}
 								</h3>
-								{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Regular</Badge>
-								{:else if payment.paymentType === 'ADDITIONAL'}<Badge kind="accent">Additional</Badge>
-								{:else}<Badge kind="neutral">{formatPaymentType(payment.paymentType)}</Badge>{/if}
+								{#if payment.paymentType === 'REGULAR'}<Badge kind="info">Course fee</Badge>
+								{:else}<Badge kind="accent">Additional</Badge>{/if}
 								{#if !payment.isActive}<Badge kind="neutral">Inactive</Badge>{/if}
 							</div>
-							{#if pd.courseName}
+							{#if payment.courseName}
 								<div style="font-size: 13px; color: var(--fg-soft); display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
 									<BookOpen size={13} strokeWidth={1.6} style="color: var(--fg-muted);" />
 									<span style="color: var(--fg-muted);">Course:</span>
-									<span class="strong">{pd.courseName}</span>
+									<span class="strong">{payment.courseName}</span>
 								</div>
 							{/if}
-							{#if pd.termYear && pd.termNumber}
-								<div style="font-size: 12.5px; color: var(--fg-muted);">Term: Year {pd.termYear}, Term {pd.termNumber}</div>
-							{:else if payment.feeStructure}
-								<div style="font-size: 12.5px; color: var(--fg-muted);">Term: {payment.feeStructure.termName}</div>
+							{#if payment.periodDate}
+								<div style="font-size: 12.5px; color: var(--fg-muted);">Period: {paymentPeriodLabel(payment, dues)}</div>
+							{/if}
+							{#if conversionNote(payment)}
+								<div style="font-size: 12px; color: var(--fg-muted);">{conversionNote(payment)}</div>
 							{/if}
 						</div>
 

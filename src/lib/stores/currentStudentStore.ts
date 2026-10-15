@@ -1,450 +1,157 @@
 import { writable, get } from 'svelte/store';
-import type { Student } from '../types/student.js';
-import type { FeeDuesTrackerDTO } from '../types/feeDues.js';
-import type { Payment } from '../types/payment.js';
-import type { StudentSession } from '../types/studentSession.js';
-import { FeeDuesService } from '../api/feeDuesService.js';
-import { PaymentService } from '../api/paymentService.js';
-import { StudentSessionService } from '../api/studentSessionService.js';
+import { dues as duesApi, payments as paymentsApi, sessions as sessionsApi, errorMessage } from '$lib/api/client';
+import { features } from '$lib/config/features';
+import type { Due, Payment, Student, StudentSession, Waiver } from '$lib/api/types';
 
-interface CurrentStudentState {
+interface Slice<T> {
+	data: T[];
+	loading: boolean;
+	error: string | null;
+	lastFetched: Date | null;
+	/** Which student's data this is */
+	studentId: number | null;
+}
+
+export interface CurrentStudentState {
 	student: Student | null;
 	loading: boolean;
 	error: string | null;
-	dues: {
-		data: FeeDuesTrackerDTO[];
-		loading: boolean;
-		error: string | null;
-		lastFetched: Date | null;
-		studentId: number | null; // Track which student's data this is
-	};
-	payments: {
-		data: Payment[];
-		loading: boolean;
-		error: string | null;
-		lastFetched: Date | null;
-		studentId: number | null; // Track which student's data this is
-	};
-	sessions: {
-		data: StudentSession[];
-		loading: boolean;
-		error: string | null;
-		lastFetched: Date | null;
-		studentId: number | null; // Track which student's data this is
-	};
+	dues: Slice<Due>;
+	payments: Slice<Payment>;
+	sessions: Slice<StudentSession>;
+	waivers: Slice<Waiver>;
 }
 
-const initialState: CurrentStudentState = {
+const emptySlice = <T>(): Slice<T> => ({ data: [], loading: false, error: null, lastFetched: null, studentId: null });
+
+const initialState = (): CurrentStudentState => ({
 	student: null,
 	loading: false,
 	error: null,
-	dues: {
-		data: [],
-		loading: false,
-		error: null,
-		lastFetched: null,
-		studentId: null
-	},
-	payments: {
-		data: [],
-		loading: false,
-		error: null,
-		lastFetched: null,
-		studentId: null
-	},
-	sessions: {
-		data: [],
-		loading: false,
-		error: null,
-		lastFetched: null,
-		studentId: null
-	}
-};
+	dues: emptySlice(),
+	payments: emptySlice(),
+	sessions: emptySlice(),
+	waivers: emptySlice()
+});
+
+const STALE_MS = 5 * 60 * 1000;
+
+type SliceKey = 'dues' | 'payments' | 'sessions' | 'waivers';
 
 function createCurrentStudentStore() {
-	const { subscribe, set, update } = writable<CurrentStudentState>(initialState);
-	const store = { subscribe, set, update };
+	const store = writable<CurrentStudentState>(initialState());
+	const { subscribe, set, update } = store;
 
-	return {
+	async function load<K extends SliceKey>(
+		key: K,
+		studentId: number,
+		force: boolean,
+		fetcher: () => Promise<CurrentStudentState[K]['data']>
+	) {
+		const slice = get(store)[key];
+		const fresh =
+			slice.studentId === studentId && slice.lastFetched && Date.now() - slice.lastFetched.getTime() < STALE_MS;
+		if (!force && fresh) return;
+
+		update((s) => ({ ...s, [key]: { ...s[key], loading: true, error: null } }));
+		try {
+			const data = await fetcher();
+			update((s) => ({
+				...s,
+				[key]: { data, loading: false, error: null, lastFetched: new Date(), studentId }
+			}));
+		} catch (e) {
+			update((s) => ({ ...s, [key]: { ...s[key], loading: false, error: errorMessage(e) } }));
+		}
+	}
+
+	const api = {
 		subscribe,
 
-		// Set student data (from load function or API)
 		setStudent(student: Student) {
-			update(state => ({
-				...state,
-				student,
-				loading: false,
-				error: null
-			}));
+			update((s) => ({ ...s, student, loading: false, error: null }));
 		},
 
-		// Update student data (after edit operations)
-		updateStudent(updatedStudent: Student) {
-			update(state => ({
-				...state,
-				student: updatedStudent
-			}));
+		updateStudent(student: Student) {
+			update((s) => ({ ...s, student }));
 		},
 
-		// Set loading state
 		setLoading(loading: boolean) {
-			update(state => ({
-				...state,
-				loading
-			}));
+			update((s) => ({ ...s, loading }));
 		},
 
-		// Set error state
 		setError(error: string) {
-			update(state => ({
-				...state,
-				error,
-				loading: false
-			}));
+			update((s) => ({ ...s, error, loading: false }));
 		},
 
-		// Clear store
 		reset() {
-			set(initialState);
+			set(initialState());
 		},
 
-		// Dues-related methods
-		async fetchDues(studentId: number, forceRefresh = false) {
-			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
-			const currentState = get(store);
-			const isDifferentStudent = currentState.dues.studentId !== studentId;
-			const shouldFetch = forceRefresh || 
-				isDifferentStudent ||
-				currentState.dues.data.length === 0 || 
-				!currentState.dues.lastFetched ||
-				(Date.now() - currentState.dues.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
+		fetchDues(studentId: number, force = false) {
+			return load('dues', studentId, force, () => duesApi.list({ studentId }));
+		},
 
-			if (!shouldFetch) {
-				return;
+		fetchPayments(studentId: number, force = false) {
+			return load('payments', studentId, force, () => paymentsApi.list({ studentId }));
+		},
+
+		fetchSessions(studentId: number, force = false) {
+			return load('sessions', studentId, force, () => sessionsApi.list({ studentId }));
+		},
+
+		fetchWaivers(studentId: number, force = false) {
+			return load('waivers', studentId, force, () => duesApi.waivers(studentId));
+		},
+
+		/**
+		 * Dues are rebuilt in the background after a payment, session or waiver change.
+		 * Re-read them every second (up to ~10s) until they differ from what we had.
+		 */
+		async refreshDuesUntilChanged(studentId: number, timeoutMs = 10_000) {
+			const before = JSON.stringify(get(store).dues.data);
+			const started = Date.now();
+			while (Date.now() - started < timeoutMs) {
+				await new Promise((r) => setTimeout(r, 1000));
+				try {
+					const data = await duesApi.list({ studentId });
+					if (JSON.stringify(data) !== before) {
+						update((s) => ({
+							...s,
+							dues: { data, loading: false, error: null, lastFetched: new Date(), studentId }
+						}));
+						return true;
+					}
+				} catch {
+					break;
+				}
 			}
-
-			update(state => ({
-				...state,
-				dues: {
-					...state.dues,
-					loading: true,
-					error: null
-				}
-			}));
-
-			try {
-				const dues = await FeeDuesService.getStudentDues(studentId);
-				update(state => ({
-					...state,
-					dues: {
-						data: dues,
-						loading: false,
-						error: null,
-						lastFetched: new Date(),
-						studentId: studentId
-					}
-				}));
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : 'Failed to load dues';
-				update(state => ({
-					...state,
-					dues: {
-						...state.dues,
-						loading: false,
-						error: errorMessage
-					}
-				}));
-			}
+			await api.fetchDues(studentId, true);
+			return false;
 		},
 
-		// Set dues loading state
-		setDuesLoading(loading: boolean) {
-			update(state => ({
-				...state,
-				dues: {
-					...state.dues,
-					loading
-				}
-			}));
+		/** Refresh everything that a write may have changed. */
+		async refreshAfterWrite(studentId: number) {
+			// Payments, dues and waivers aren't on backend `self-service` yet
+			if (!features.legacyFeeModel) return api.fetchSessions(studentId, true);
+			await Promise.all([
+				api.fetchPayments(studentId, true),
+				api.fetchSessions(studentId, true),
+				api.fetchWaivers(studentId, true)
+			]);
+			await api.refreshDuesUntilChanged(studentId);
 		},
 
-		// Update a specific due (after payment)
-		updateDue(updatedDue: FeeDuesTrackerDTO) {
-			update(state => ({
-				...state,
-				dues: {
-					...state.dues,
-					data: state.dues.data.map(due => 
-						due.id === updatedDue.id ? updatedDue : due
-					)
-				}
-			}));
-		},
-
-		// Add a new due (after creating additional payment)
-		addDue(newDue: FeeDuesTrackerDTO) {
-			update(state => ({
-				...state,
-				dues: {
-					...state.dues,
-					data: [...state.dues.data, newDue]
-				}
-			}));
-		},
-
-		// Clear dues data
-		clearDues() {
-			update(state => ({
-				...state,
-				dues: {
-					data: [],
-					loading: false,
-					error: null,
-					lastFetched: null,
-					studentId: null
-				}
-			}));
-		},
-
-		// Payment-related methods
-		async fetchPayments(studentId: number, forceRefresh = false) {
-			console.log('[Store] fetchPayments called for studentId:', studentId, 'forceRefresh:', forceRefresh);
-			
-			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
-			const currentState = get(store);
-			const isDifferentStudent = currentState.payments.studentId !== studentId;
-			const shouldFetch = forceRefresh || 
-				isDifferentStudent ||
-				currentState.payments.data.length === 0 || 
-				!currentState.payments.lastFetched ||
-				(Date.now() - currentState.payments.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
-
-			console.log('[Store] Should fetch payments?', shouldFetch, {
-				isDifferentStudent,
-				hasData: currentState.payments.data.length > 0,
-				lastFetched: currentState.payments.lastFetched
-			});
-
-			if (!shouldFetch) {
-				console.log('[Store] Using cached payments, count:', currentState.payments.data.length);
-				return;
-			}
-
-			console.log('[Store] Setting loading state...');
-			update(state => ({
-				...state,
-				payments: {
-					...state.payments,
-					loading: true,
-					error: null
-				}
-			}));
-
-			try {
-				console.log('[Store] Calling PaymentService.getPaymentsByStudentId...');
-				const payments = await PaymentService.getPaymentsByStudentId(studentId);
-				console.log('[Store] Received payments:', payments.length, 'records');
-				
-				update(state => ({
-					...state,
-					payments: {
-						data: payments,
-						loading: false,
-						error: null,
-						lastFetched: new Date(),
-						studentId: studentId
-					}
-				}));
-				console.log('[Store] Payment data stored successfully');
-			} catch (error) {
-				console.error('[Store] Error fetching payments:', error);
-				const errorMessage = error instanceof Error ? error.message : 'Failed to load payment history';
-				update(state => ({
-					...state,
-					payments: {
-						...state.payments,
-						loading: false,
-						error: errorMessage
-					}
-				}));
-			}
-		},
-
-		// Set payments loading state
-		setPaymentsLoading(loading: boolean) {
-			update(state => ({
-				...state,
-				payments: {
-					...state.payments,
-					loading
-				}
-			}));
-		},
-
-		// Clear payments data
-		clearPayments() {
-			update(state => ({
-				...state,
-				payments: {
-					data: [],
-					loading: false,
-					error: null,
-					lastFetched: null,
-					studentId: null
-				}
-			}));
-		},
-
-		// Helper to get payment details with enriched data from dues
-		getEnrichedPayments() {
-			const currentState = get(store);
-			const { payments, dues } = currentState;
-
-			return payments.data.map(payment => {
-				// If payment has feeStructure, try to find matching due
-				if (payment.feeStructure) {
-					const matchingDue = dues.data.find(due => 
-						due.feeStructureId === payment.feeStructure?.id
-					);
-					
-					if (matchingDue) {
-						return {
-							...payment,
-							enrichedData: {
-								termYear: matchingDue.termYear,
-								termNumber: matchingDue.termNumber,
-								courseName: matchingDue.courseName
-							}
-						};
-					}
-				}
-
-				// For payments without feeStructure or no matching due, use payment's own data
-				return {
-					...payment,
-					enrichedData: {
-						termYear: null,
-						termNumber: null,
-						courseName: payment.courseName || null
-					}
-				};
-			});
-		},
-
-		// Session-related methods
-		async fetchSessions(studentId: number, forceRefresh = false) {
-			// Check if we need to fetch (no data, force refresh, different student, or data is stale)
-			const currentState = get(store);
-			const isDifferentStudent = currentState.sessions.studentId !== studentId;
-			const shouldFetch = forceRefresh || 
-				isDifferentStudent ||
-				currentState.sessions.data.length === 0 || 
-				!currentState.sessions.lastFetched ||
-				(Date.now() - currentState.sessions.lastFetched.getTime()) > 5 * 60 * 1000; // 5 minutes
-
-			if (!shouldFetch) {
-				return;
-			}
-
-			update(state => ({
-				...state,
-				sessions: {
-					...state.sessions,
-					loading: true,
-					error: null
-				}
-			}));
-
-			try {
-				const sessions = await StudentSessionService.getAllSessionsByStudent(studentId);
-				update(state => ({
-					...state,
-					sessions: {
-						data: sessions,
-						loading: false,
-						error: null,
-						lastFetched: new Date(),
-						studentId: studentId
-					}
-				}));
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : 'Failed to load sessions';
-				update(state => ({
-					...state,
-					sessions: {
-						...state.sessions,
-						loading: false,
-						error: errorMessage
-					}
-				}));
-			}
-		},
-
-		// Set sessions loading state
-		setSessionsLoading(loading: boolean) {
-			update(state => ({
-				...state,
-				sessions: {
-					...state.sessions,
-					loading
-				}
-			}));
-		},
-
-		// Update a specific session (after ending session)
-		updateSession(updatedSession: StudentSession) {
-			update(state => ({
-				...state,
-				sessions: {
-					...state.sessions,
-					data: state.sessions.data.map(session => 
-						session.id === updatedSession.id ? updatedSession : session
-					)
-				}
-			}));
-		},
-
-		// Add a new session (after creating)
-		addSession(newSession: StudentSession) {
-			update(state => ({
-				...state,
-				sessions: {
-					...state.sessions,
-					data: [...state.sessions.data, newSession]
-				}
-			}));
-		},
-
-		// Clear sessions data
-		clearSessions() {
-			update(state => ({
-				...state,
-				sessions: {
-					data: [],
-					loading: false,
-					error: null,
-					lastFetched: null,
-					studentId: null
-				}
-			}));
-		},
-
-		// Helper to check if a session is active by sessionId
 		isSessionActive(sessionId: number): boolean {
-			const currentState = get(store);
-			const session = currentState.sessions.data.find(s => s.id === sessionId);
-			return session ? StudentSessionService.isSessionActive(session) : false;
+			const session = get(store).sessions.data.find((s) => s.id === sessionId);
+			return session ? !session.dateOfDisjoining : false;
 		},
 
-		// Helper to get a session by ID
 		getSessionById(sessionId: number): StudentSession | undefined {
-			const currentState = get(store);
-			return currentState.sessions.data.find(s => s.id === sessionId);
+			return get(store).sessions.data.find((s) => s.id === sessionId);
 		}
 	};
+	return api;
 }
 
 export const currentStudentStore = createCurrentStudentStore();
-
-// Export types for use in components
-export type { CurrentStudentState };

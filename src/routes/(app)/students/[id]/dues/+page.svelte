@@ -1,155 +1,120 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import {
-		AlertCircle,
-		CheckCircle,
-		Plus,
-		Calendar,
-		Clock,
-		Book,
-		XCircle,
-		AlertTriangle,
-		RefreshCw,
-		CreditCard
-	} from 'lucide-svelte';
-	import {
-		currentStudentStore,
-		FeeDuesService,
-		type FeeDuesTrackerDTO,
-		DuesStatus
-	} from '$lib';
-	import Badge from '$lib/components/Badge.svelte';
+	import { AlertCircle, Plus, RefreshCw, CreditCard, Ban, Undo2 } from 'lucide-svelte';
+	import { api, canAccess, currentStudentStore, errorMessage, toast } from '$lib';
+	import type { Due, DuesSummary } from '$lib/api/types';
+	import { formatDate, formatDateTime, formatPeriod, isoDate, money, termLabel } from '$lib/utils/format';
 	import Money from '$lib/components/Money.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import PaymentModal from './PaymentModal.svelte';
 	import AdditionalPaymentModal from './AdditionalPaymentModal.svelte';
 
-	$: studentId = Number($page.params.id);
-	$: currentStudentState = $currentStudentStore;
-	$: student = currentStudentState.student;
-	$: dues = currentStudentState.dues;
+	let studentId = $derived(Number($page.params.id));
+	let st = $derived($currentStudentStore);
+	let student = $derived(st.student);
+	let dues = $derived(st.dues);
+	let waivers = $derived(st.waivers.data);
 
-	let paymentModalOpen = false;
-	let additionalPaymentModalOpen = false;
-	let selectedDue: FeeDuesTrackerDTO | null = null;
+	let canPay = $derived($canAccess('/api/payments/**', 'write'));
+	let canWaive = $derived($canAccess('/api/dues/**', 'write'));
 
-	let cancellingDueId: number | null = null;
-	let showCancelConfirmModal = false;
-	let dueToCancel: FeeDuesTrackerDTO | null = null;
+	let summary: DuesSummary | null = $state(null);
 
-	onMount(async () => {
-		if (studentId) {
-			await Promise.all([
-				currentStudentStore.fetchDues(studentId, true),
-				currentStudentStore.fetchSessions(studentId, true)
-			]);
-		}
+	let paymentOpen = $state(false);
+	let additionalOpen = $state(false);
+	let payDue: Due | null = $state(null);
+
+	let waiveDue: Due | null = $state(null);
+	let waiveReason = $state('');
+	let waiving = $state(false);
+	let waiveError = $state('');
+
+	let showUpcoming = $state(false);
+	let showSettled = $state(true);
+
+	const today = isoDate();
+
+	$effect(() => {
+		const id = studentId;
+		if (!id) return;
+		currentStudentStore.fetchDues(id, true);
+		currentStudentStore.fetchSessions(id, true);
+		currentStudentStore.fetchWaivers(id, true);
 	});
 
-	async function refreshDues() {
-		if (studentId) await currentStudentStore.fetchDues(studentId, true);
-	}
+	// re-read the summary whenever the dues list changes
+	$effect(() => {
+		dues.lastFetched;
+		loadSummary();
+	});
 
-	$: pendingDues = dues.data.filter(
-		(d) =>
-			d.status === DuesStatus.DUE ||
-			d.status === DuesStatus.OVERDUE ||
-			d.status === DuesStatus.PARTIALLY_PAID
-	);
-	$: paidDues = dues.data.filter((d) => d.status === DuesStatus.PAID);
-	$: partiallyPaidDues = dues.data.filter(
-		(d) => d.status === DuesStatus.PARTIALLY_PAID || d.status === DuesStatus.PARTIAL
-	);
-	$: cancelledDues = dues.data.filter((d) => d.status === DuesStatus.STUDENT_LEFT_DUE_CANCELLED);
-
-	$: currentAndPastDues = pendingDues.filter((d) => !isFutureDue(d));
-	$: futureDues = pendingDues.filter((d) => isFutureDue(d));
-	$: totalDueAmount = currentAndPastDues.reduce(
-		(sum, d) => sum + (d.dueAmount || d.amountDue || 0),
-		0
-	);
-
-	function formatDate(d: string | undefined): string {
-		if (!d) return '—';
+	async function loadSummary() {
+		if (!studentId) return;
 		try {
-			return new Date(d).toLocaleDateString('en-IN', {
-				year: 'numeric',
-				month: 'short',
-				day: 'numeric'
-			});
+			summary = await api.dues.summary({ studentId });
 		} catch {
-			return d;
+			summary = null;
 		}
 	}
 
-	function getCurrentTerm(termsPerYear: number): { year: number; term: number } {
-		const cur = new Date();
-		const monthsPerTerm = 12 / termsPerYear;
-		const term = Math.ceil((cur.getMonth() + 1) / monthsPerTerm);
-		return { year: cur.getFullYear(), term: Math.min(term, termsPerYear) };
+	let open = $derived(dues.data.filter((d) => d.status === 'DUE' || d.status === 'PARTIALLY_PAID'));
+	let outstanding = $derived(open.filter((d) => d.periodStart <= today));
+	let upcoming = $derived(open.filter((d) => d.periodStart > today));
+	let settled = $derived(dues.data.filter((d) => !(d.status === 'DUE' || d.status === 'PARTIALLY_PAID')).reverse());
+	let outstandingTotal = $derived(outstanding.reduce((s, d) => s + d.balance, 0));
+
+	let sessionById = $derived(new Map(st.sessions.data.map((s) => [s.id, s])));
+	function sessionDisjoined(d: Due) {
+		const s = sessionById.get(d.sessionId);
+		return !!s && s.dateOfDisjoining !== null;
 	}
 
-	function isFutureDue(due: FeeDuesTrackerDTO): boolean {
-		const c = getCurrentTerm(4);
-		if (due.termYear > c.year) return true;
-		if (due.termYear === c.year && due.termNumber > c.term) return true;
-		return false;
+	function refresh() {
+		currentStudentStore.fetchDues(studentId, true);
+		currentStudentStore.fetchWaivers(studentId, true);
 	}
 
-	function isOverdue(due: FeeDuesTrackerDTO): boolean {
-		if (isFutureDue(due)) return false;
-		const c = getCurrentTerm(4);
-		if (due.termYear < c.year) return true;
-		if (due.termYear === c.year) return due.termNumber < c.term;
-		return false;
+	function pay(d: Due | null) {
+		payDue = d;
+		paymentOpen = true;
 	}
 
-	function handlePayDue(due: FeeDuesTrackerDTO) {
-		selectedDue = due;
-		paymentModalOpen = true;
-	}
-	function handleAdditionalPayment() {
-		additionalPaymentModalOpen = true;
-	}
-	async function handlePaymentModalClose() {
-		paymentModalOpen = false;
-		selectedDue = null;
-		if (studentId) await currentStudentStore.fetchDues(studentId, true);
-	}
-	async function handleAdditionalPaymentModalClose() {
-		additionalPaymentModalOpen = false;
-		if (studentId) await currentStudentStore.fetchDues(studentId, true);
+	function openWaive(d: Due) {
+		waiveDue = d;
+		waiveReason = '';
+		waiveError = '';
 	}
 
-	function canCancelDue(d: FeeDuesTrackerDTO): boolean {
-		if (
-			d.status !== DuesStatus.DUE &&
-			d.status !== DuesStatus.PARTIALLY_PAID &&
-			d.status !== DuesStatus.PARTIAL
-		)
-			return false;
-		return !currentStudentStore.isSessionActive(d.sessionId);
-	}
-
-	function handleCancelDue(due: FeeDuesTrackerDTO) {
-		dueToCancel = due;
-		showCancelConfirmModal = true;
-	}
-	function closeCancelConfirmModal() {
-		showCancelConfirmModal = false;
-		dueToCancel = null;
-		cancellingDueId = null;
-	}
-	async function confirmCancelDue() {
-		if (!dueToCancel) return;
+	async function confirmWaive() {
+		if (!waiveDue) return;
+		if (!waiveReason.trim()) {
+			waiveError = 'Give a reason for the waiver';
+			return;
+		}
+		waiving = true;
+		waiveError = '';
 		try {
-			cancellingDueId = dueToCancel.id;
-			await FeeDuesService.markDueAsStudentLeftCancelled(dueToCancel.id);
-			if (studentId) await currentStudentStore.fetchDues(studentId, true);
-			closeCancelConfirmModal();
-		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to cancel due. Please try again.');
-			cancellingDueId = null;
+			await api.dues.createWaiver({ sessionId: waiveDue.sessionId, periodStart: waiveDue.periodStart, reason: waiveReason.trim() });
+			toast.ok(`Waived ${waiveDue.courseName} · ${formatPeriod(waiveDue.periodStart, waiveDue.periodEnd)}`);
+			waiveDue = null;
+			await currentStudentStore.refreshAfterWrite(studentId);
+		} catch (e) {
+			waiveError = errorMessage(e, 'Failed to waive');
+		} finally {
+			waiving = false;
+		}
+	}
+
+	async function removeWaiver(id: number) {
+		if (!confirm('Remove this waiver? The period goes back to its calculated status.')) return;
+		try {
+			await api.dues.removeWaiver(id);
+			toast.ok('Waiver removed');
+			await currentStudentStore.refreshAfterWrite(studentId);
+		} catch (e) {
+			toast.error(errorMessage(e, 'Failed to remove waiver'));
 		}
 	}
 </script>
@@ -162,24 +127,22 @@
 	<div>
 		<h2 class="section-title-s">Fee <em>dues</em> &amp; payments</h2>
 		<div style="color: var(--fg-muted); font-size: 13px;">
-			{#if student}Manage dues for {student.studentName}.{/if}
+			Dues are calculated from {student?.studentName ?? 'the student'}'s sessions and each course's fee timeline.
 		</div>
 	</div>
 	<div style="display: flex; gap: 8px;">
-		<button class="btn-s btn-secondary-s btn-sm-s" on:click={refreshDues} disabled={dues.loading}>
-			{#if dues.loading}<span class="spinner"></span>{:else}<RefreshCw size={14} strokeWidth={1.6} />{/if}
-			Refresh
+		<button class="btn-s btn-secondary-s btn-sm-s" onclick={refresh} disabled={dues.loading}>
+			{#if dues.loading}<span class="spinner"></span>{:else}<RefreshCw size={14} strokeWidth={1.6} />{/if} Refresh
 		</button>
-		<button class="btn-s btn-primary-s btn-sm-s" on:click={handleAdditionalPayment}>
-			<Plus size={14} strokeWidth={1.8} /> Add payment
-		</button>
+		{#if canPay}
+			<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => (additionalOpen = true)}><Plus size={14} strokeWidth={1.8} /> Additional payment</button>
+			<button class="btn-s btn-primary-s btn-sm-s" onclick={() => pay(null)}><CreditCard size={14} strokeWidth={1.6} /> Record course fee</button>
+		{/if}
 	</div>
 </div>
 
-{#if dues.loading}
-	<div style="display: flex; justify-content: center; padding: 60px 0; color: var(--fg-muted);">
-		<span class="spinner spinner-lg"></span>
-	</div>
+{#if dues.loading && dues.data.length === 0}
+	<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
 {:else if dues.error}
 	<div class="callout danger">
 		<AlertCircle size={18} strokeWidth={1.6} />
@@ -187,316 +150,148 @@
 			<div class="callout-title">Couldn't load dues</div>
 			<div class="callout-body">{dues.error}</div>
 		</div>
-		<button class="btn-s btn-secondary-s btn-sm-s" on:click={refreshDues}>Retry</button>
+		<button class="btn-s btn-secondary-s btn-sm-s" onclick={refresh}>Retry</button>
 	</div>
 {:else}
 	<div class="kpi-grid" style="margin-bottom: 18px;">
 		<div class="kpi">
-			<div class="kpi-label">Current due</div>
-			<div class="kpi-value" style="color: var(--danger);">
-				<Money value={totalDueAmount} mono={false} />
-			</div>
+			<div class="kpi-label">Outstanding now</div>
+			<div class="kpi-value" style="color: var(--danger);"><Money value={outstandingTotal} mono={false} /></div>
+			<div class="kpi-meta"><span>{outstanding.length} period{outstanding.length !== 1 ? 's' : ''} started</span></div>
+		</div>
+		<div class="kpi">
+			<div class="kpi-label">Total balance</div>
+			<div class="kpi-value"><Money value={summary?.balance ?? 0} mono={false} /></div>
+			<div class="kpi-meta"><span>incl. {upcoming.length} upcoming this year</span></div>
+		</div>
+		<div class="kpi">
+			<div class="kpi-label">Paid</div>
+			<div class="kpi-value" style="color: var(--ok);"><Money value={summary?.paid ?? 0} mono={false} /></div>
+			<div class="kpi-meta"><span>+ <Money value={summary?.discount ?? 0} mono={false} /> discounts</span></div>
+		</div>
+		<div class="kpi">
+			<div class="kpi-label">Billed</div>
+			<div class="kpi-value"><Money value={summary?.amount ?? 0} mono={false} /></div>
 			<div class="kpi-meta">
-				<span>{currentAndPastDues.length} pending{partiallyPaidDues.length > 0 ? ` · ${partiallyPaidDues.length} partial` : ''}</span>
-				{#if futureDues.length > 0}<span class="muted">+{futureDues.length} future</span>{/if}
+				{#if (summary?.overpaid ?? 0) > 0}<span style="color: var(--info);">Overpaid <Money value={summary?.overpaid} mono={false} /></span>
+				{:else}<span>{summary ? `${summary.counts.PAID ?? 0} paid · ${summary.counts.WAIVED ?? 0} waived` : ''}</span>{/if}
 			</div>
-		</div>
-		<div class="kpi">
-			<div class="kpi-label">Paid dues</div>
-			<div class="kpi-value" style="color: var(--ok);">{paidDues.length}</div>
-			<div class="kpi-meta"><span>Successfully cleared</span></div>
-		</div>
-		<div class="kpi">
-			<div class="kpi-label">Cancelled</div>
-			<div class="kpi-value">{cancelledDues.length}</div>
-			<div class="kpi-meta"><span>Student left course</span></div>
-		</div>
-		<div class="kpi">
-			<div class="kpi-label">Overdue</div>
-			<div class="kpi-value" style="color: var(--warn);">
-				{currentAndPastDues.filter((d) => isOverdue(d)).length}
-			</div>
-			<div class="kpi-meta"><span>Past due date</span></div>
 		</div>
 	</div>
 
-	{#if currentAndPastDues.length > 0}
-		<div class="card-s" style="margin-bottom: 18px;">
-			<div class="card-header">
-				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
-					<AlertCircle size={16} strokeWidth={1.6} style="color: var(--warn);" />
-					Current &amp; pending ({currentAndPastDues.length})
-				</h3>
-			</div>
-			<div class="card-body-s tight">
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Course</th>
-							<th>Term</th>
-							<th>Amount due</th>
-							<th>Created</th>
-							<th>Status</th>
-							<th style="text-align: right;">Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each currentAndPastDues as due}
-							<tr>
-								<td>
-									<div style="display: flex; align-items: center; gap: 8px;">
-										<Book size={14} strokeWidth={1.6} style="color: var(--accent);" />
-										<span class="strong">{due.courseName}</span>
-									</div>
-								</td>
-								<td>
-									<div style="line-height: 1.3;">
-										<div>Year {due.termYear}</div>
-										<div class="muted" style="font-size: 11px;">Term {due.termNumber}</div>
-									</div>
-								</td>
-								<td class="num strong" style:color={due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'var(--info)' : undefined}>
-									<Money value={due.dueAmount} />
-									{#if due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL}
-										<div class="muted" style="font-size: 10px; text-align: right;">Remaining</div>
-									{/if}
-								</td>
-								<td class="muted" style:color={isOverdue(due) ? 'var(--danger)' : undefined}>
-									<div style="display: inline-flex; align-items: center; gap: 4px;">
-										<Calendar size={12} strokeWidth={1.6} />
-										{formatDate(due.createdAt)}
-									</div>
-								</td>
-								<td>
-									{#if due.status === DuesStatus.PAID}
-										<Badge kind="ok">Paid</Badge>
-									{:else if due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL}
-										<Badge kind="warn">Partial</Badge>
-									{:else}
-										<Badge kind="danger">{due.status}</Badge>
-									{/if}
-									{#if isOverdue(due)}
-										<div style="margin-top: 4px;"><Badge kind="danger">Overdue</Badge></div>
-									{/if}
-								</td>
-								<td style="text-align: right;">
-									<div style="display: inline-flex; gap: 6px;">
-										<button class="btn-s btn-primary-s btn-sm-s" on:click={() => handlePayDue(due)}>
-											<CreditCard size={12} strokeWidth={1.8} />
-											{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay remaining' : 'Pay now'}
-										</button>
-										{#if canCancelDue(due)}
-											<button class="btn-s btn-secondary-s btn-sm-s" style="color: var(--danger); border-color: var(--danger-soft);" on:click={() => handleCancelDue(due)} disabled={cancellingDueId === due.id} title="Mark as cancelled">
-												{#if cancellingDueId === due.id}<span class="spinner"></span>{:else}<XCircle size={12} strokeWidth={1.8} />{/if}
-											</button>
-										{/if}
-									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</div>
-	{/if}
+	{#snippet dueTable(rows: Due[], actions: boolean)}
+		<table class="tbl">
+			<thead>
+				<tr>
+					<th>Course</th><th>Period</th><th style="text-align:right;">Amount</th><th style="text-align:right;">Paid</th>
+					<th style="text-align:right;">Discount</th><th style="text-align:right;">Balance</th><th>Status</th>
+					{#if actions}<th style="text-align:right;"></th>{/if}
+				</tr>
+			</thead>
+			<tbody>
+				{#each rows as d (d.id)}
+					<tr>
+						<td class="strong">{d.courseName}</td>
+						<td>
+							{formatPeriod(d.periodStart, d.periodEnd)}
+							<div class="muted" style="font-size: 11px;">{termLabel(d.termNumber, d.termsPerYear)}</div>
+						</td>
+						<td class="num" style="text-align:right;"><Money value={d.amount} /></td>
+						<td class="num" style="text-align:right;"><Money value={d.paidAmount} /></td>
+						<td class="num" style="text-align:right;">{#if d.discountAmount > 0}<Money value={d.discountAmount} />{:else}<span class="muted">—</span>{/if}</td>
+						<td class="num" style="text-align:right;">
+							<Money value={d.balance} danger={d.balance > 0} />
+							{#if d.overpaidAmount > 0}<div style="font-size: 11px; color: var(--info);">+{money(d.overpaidAmount)} over</div>{/if}
+						</td>
+						<td><StatusBadge status={d.status} /></td>
+						{#if actions}
+							<td style="text-align:right; white-space: nowrap;">
+								{#if canWaive && sessionDisjoined(d)}
+									<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => openWaive(d)} title="Student left: don't charge this period"><Ban size={13} /> Waive</button>
+								{/if}
+								{#if canPay}<button class="btn-s btn-primary-s btn-sm-s" onclick={() => pay(d)}>Pay</button>{/if}
+							</td>
+						{/if}
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/snippet}
 
-	{#if futureDues.length > 0}
-		<div class="card-s" style="margin-bottom: 18px; opacity: 0.85;">
-			<div class="card-header">
-				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px; color: var(--fg-soft);">
-					<Clock size={16} strokeWidth={1.6} />
-					Upcoming ({futureDues.length})
-					<Badge kind="neutral">Future terms</Badge>
-				</h3>
-			</div>
-			<div class="card-body-s tight">
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Course</th>
-							<th>Term</th>
-							<th>Amount</th>
-							<th>Created</th>
-							<th>Status</th>
-							<th style="text-align: right;">Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each futureDues as due}
-							<tr>
-								<td>
-									<div style="display: flex; align-items: center; gap: 8px;">
-										<Book size={14} strokeWidth={1.6} style="color: var(--fg-muted);" />
-										<span>{due.courseName}</span>
-									</div>
-								</td>
-								<td><div>Year {due.termYear} · <span class="muted">Term {due.termNumber}</span></div></td>
-								<td class="num"><Money value={due.dueAmount} /></td>
-								<td class="muted">{formatDate(due.createdAt)}</td>
-								<td><Badge kind="neutral">{due.status === DuesStatus.PARTIALLY_PAID ? 'Partial' : due.status}</Badge></td>
-								<td style="text-align: right;">
-									<button class="btn-s btn-secondary-s btn-sm-s" on:click={() => handlePayDue(due)}>
-										<CreditCard size={12} strokeWidth={1.8} />
-										{due.status === DuesStatus.PARTIALLY_PAID || due.status === DuesStatus.PARTIAL ? 'Pay remaining' : 'Pay advance'}
-									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</div>
-	{/if}
-
-	{#if currentAndPastDues.length === 0 && futureDues.length === 0}
-		<div class="card-s" style="margin-bottom: 18px;">
-			<div class="card-body-s">
-				<div class="empty-s">
-					<div class="glyph">✓</div>
-					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">
-						All <em style="color: var(--accent); font-style: italic;">dues cleared</em>
-					</div>
-					<div style="margin-top: 4px;">
-						{student?.studentName || 'This student'} has no pending dues.
-					</div>
-					<div style="margin-top: 14px;">
-						<button class="btn-s btn-primary-s" on:click={handleAdditionalPayment}>
-							<Plus size={14} strokeWidth={1.8} /> Make additional payment
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
-	{/if}
-
-	{#if paidDues.length > 0}
-		<div class="card-s" style="margin-bottom: 18px;">
-			<div class="card-header">
-				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
-					<CheckCircle size={16} strokeWidth={1.6} style="color: var(--ok);" />
-					Recent payments ({paidDues.length})
-				</h3>
-			</div>
-			<div class="card-body-s tight">
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Course</th>
-							<th>Term</th>
-							<th>Payment date</th>
-							<th>Status</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each paidDues.slice(0, 5) as due}
-							<tr>
-								<td><div style="display: flex; align-items: center; gap: 8px;"><Book size={14} strokeWidth={1.6} style="color: var(--accent);" /><span class="strong">{due.courseName}</span></div></td>
-								<td>Year {due.termYear} · <span class="muted">Term {due.termNumber}</span></td>
-								<td class="muted">{formatDate(due.updatedAt)}</td>
-								<td><Badge kind="ok">Paid</Badge></td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			{#if paidDues.length > 5}
-				<div style="padding: 12px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--fg-muted); text-align: center;">
-					Showing 5 of {paidDues.length} paid dues
-				</div>
+	<div class="card-s" style="margin-bottom: 18px;">
+		<div class="card-header"><h3 class="card-title-s">Outstanding ({outstanding.length})</h3></div>
+		<div class="card-body-s tight">
+			{#if outstanding.length === 0}
+				<div class="empty-s" style="padding: 22px;">Nothing outstanding.</div>
+			{:else}
+				{@render dueTable(outstanding, true)}
 			{/if}
 		</div>
+	</div>
+
+	{#if upcoming.length > 0}
+		<div class="card-s" style="margin-bottom: 18px;">
+			<div class="card-header" style="display:flex; justify-content: space-between; align-items:center;">
+				<h3 class="card-title-s">Upcoming this year ({upcoming.length})</h3>
+				<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => (showUpcoming = !showUpcoming)}>{showUpcoming ? 'Hide' : 'Show'}</button>
+			</div>
+			{#if showUpcoming}<div class="card-body-s tight">{@render dueTable(upcoming, true)}</div>{/if}
+		</div>
 	{/if}
 
-	{#if cancelledDues.length > 0}
+	{#if settled.length > 0}
 		<div class="card-s" style="margin-bottom: 18px;">
-			<div class="card-header">
-				<h3 class="card-title-s" style="display: flex; align-items: center; gap: 8px;">
-					<XCircle size={16} strokeWidth={1.6} style="color: var(--fg-muted);" />
-					Cancelled ({cancelledDues.length})
-					<Badge kind="neutral">Student left course</Badge>
-				</h3>
+			<div class="card-header" style="display:flex; justify-content: space-between; align-items:center;">
+				<h3 class="card-title-s">Settled ({settled.length})</h3>
+				<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => (showSettled = !showSettled)}>{showSettled ? 'Hide' : 'Show'}</button>
 			</div>
+			{#if showSettled}<div class="card-body-s tight">{@render dueTable(settled, false)}</div>{/if}
+		</div>
+	{/if}
+
+	{#if waivers.length > 0}
+		<div class="card-s" style="margin-bottom: 18px;">
+			<div class="card-header"><h3 class="card-title-s">Waivers ({waivers.length})</h3></div>
 			<div class="card-body-s tight">
 				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Course</th>
-							<th>Term</th>
-							<th>Amount</th>
-							<th>Cancelled</th>
-							<th>Status</th>
-						</tr>
-					</thead>
+					<thead><tr><th>Course</th><th>Period from</th><th>Reason</th><th>By</th><th></th></tr></thead>
 					<tbody>
-						{#each cancelledDues as due}
-							<tr style="opacity: 0.75;">
-								<td>{due.courseName}</td>
-								<td>Year {due.termYear} · <span class="muted">Term {due.termNumber}</span></td>
-								<td class="num"><Money value={due.dueAmount || due.amountDue || 0} /></td>
-								<td class="muted">{formatDate(due.updatedAt)}</td>
-								<td><Badge kind="neutral">Cancelled</Badge></td>
+						{#each waivers as w (w.id)}
+							<tr>
+								<td>{sessionById.get(w.sessionId)?.course.name ?? `Session ${w.sessionId}`}</td>
+								<td>{formatDate(w.periodStart)}</td>
+								<td>{w.reason}</td>
+								<td class="muted" style="font-size: 12px;">{w.createdBy}<br />{formatDateTime(w.createdAt)}</td>
+								<td style="text-align:right;">
+									{#if canWaive}<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => removeWaiver(w.id)}><Undo2 size={13} /> Remove</button>{/if}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
-			<div class="callout info" style="margin: 16px;">
-				<AlertCircle size={16} strokeWidth={1.6} />
-				<div class="callout-body">
-					These dues were cancelled because the student left the course. No payment is required.
-				</div>
-			</div>
 		</div>
+	{/if}
+
+	{#if dues.data.length === 0}
+		<div class="callout info"><div class="callout-body">No dues yet. Dues appear once the student is enrolled in a course that has a fee timeline.</div></div>
 	{/if}
 {/if}
 
-<PaymentModal bind:isOpen={paymentModalOpen} {studentId} due={selectedDue} on:close={handlePaymentModalClose} />
-<AdditionalPaymentModal bind:isOpen={additionalPaymentModalOpen} {studentId} studentName={student?.studentName || ''} on:close={handleAdditionalPaymentModalClose} />
+<PaymentModal open={paymentOpen} {studentId} due={payDue} onClose={() => (paymentOpen = false)} />
+<AdditionalPaymentModal open={additionalOpen} {studentId} studentName={student?.studentName} onClose={() => (additionalOpen = false)} />
 
-{#if showCancelConfirmModal && dueToCancel}
-	<div class="modal-veil" on:click={closeCancelConfirmModal} on:keydown={(e) => e.key === 'Escape' && closeCancelConfirmModal()} role="presentation">
-		<div class="modal-s" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
-			<div class="modal-head">
-				<div>
-					<h3 class="modal-title-s">Cancel <em style="color: var(--danger); font-style: italic;">due</em>?</h3>
-					<div class="modal-sub">This action cannot be undone.</div>
-				</div>
-				<button class="btn-s btn-ghost-s btn-icon-s" on:click={closeCancelConfirmModal} aria-label="Close"><XCircle size={16} strokeWidth={1.6} /></button>
-			</div>
-			<div class="modal-body-s">
-				<div class="card-s" style="background: var(--bg-elev); margin-bottom: 14px;">
-					<div class="card-body-s">
-						<div style="display: flex; flex-direction: column; gap: 10px;">
-							<div style="display: flex; justify-content: space-between;">
-								<span class="muted">Course</span>
-								<span class="strong">{dueToCancel.courseName}</span>
-							</div>
-							<div style="display: flex; justify-content: space-between;">
-								<span class="muted">Term</span>
-								<span class="strong">Year {dueToCancel.termYear} · Term {dueToCancel.termNumber}</span>
-							</div>
-							<div style="display: flex; justify-content: space-between;">
-								<span class="muted">Amount</span>
-								<span class="strong" style="color: var(--danger);"><Money value={dueToCancel.dueAmount || dueToCancel.amountDue || 0} /></span>
-							</div>
-						</div>
-					</div>
-				</div>
-				<div class="callout">
-					<AlertTriangle size={18} strokeWidth={1.6} />
-					<div>
-						<div class="callout-title">Reason: student left course</div>
-						<div class="callout-body">Inactive session detected for this enrolment.</div>
-					</div>
-				</div>
-			</div>
-			<div class="modal-foot">
-				<button class="btn-s btn-secondary-s" on:click={closeCancelConfirmModal} disabled={cancellingDueId !== null}>Keep due</button>
-				<button class="btn-s btn-danger-s" on:click={confirmCancelDue} disabled={cancellingDueId !== null}>
-					{#if cancellingDueId !== null}<span class="spinner"></span>{:else}<XCircle size={14} strokeWidth={1.8} />{/if}
-					Yes, cancel due
-				</button>
-			</div>
+<Modal open={waiveDue !== null} title="Waive this period" subtitle={waiveDue ? `${waiveDue.courseName} · ${formatPeriod(waiveDue.periodStart, waiveDue.periodEnd)}` : ''} busy={waiving} onClose={() => (waiveDue = null)}>
+	<div style="display:flex; flex-direction:column; gap: 12px;">
+		<div class="callout info"><div class="callout-body">The student has left this course. A waived period isn't charged (balance 0). You can remove the waiver later.</div></div>
+		<div class="field">
+			<label for="waive-reason">Reason *</label>
+			<input id="waive-reason" class="input-s" bind:value={waiveReason} placeholder="e.g. Left mid-term" disabled={waiving} />
 		</div>
+		<ErrorCallout message={waiveError} />
 	</div>
-{/if}
+	{#snippet footer()}
+		<button class="btn-s btn-secondary-s" onclick={() => (waiveDue = null)} disabled={waiving}>Cancel</button>
+		<button class="btn-s btn-danger-s" onclick={confirmWaive} disabled={waiving}>{#if waiving}<span class="spinner"></span>{/if}Waive period</button>
+	{/snippet}
+</Modal>

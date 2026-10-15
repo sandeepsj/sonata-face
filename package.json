@@ -9,7 +9,8 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"api:types": "openapi-typescript ../sonata-brain/docs/api/openapi.json -o src/lib/api/schema.d.ts"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^6.0.0",
@@ -17,6 +18,7 @@
 		"@sveltejs/vite-plugin-svelte": "^6.0.0",
 		"autoprefixer": "^10.4.21",
 		"daisyui": "^5.1.25",
+		"openapi-typescript": "^7.13.0",
 		"postcss": "^8.5.6",
 		"svelte": "^5.0.0",
 		"svelte-check": "^4.0.0",
