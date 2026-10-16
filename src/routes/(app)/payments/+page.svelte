@@ -250,13 +250,8 @@
 
 	onMount(() => {
 		api.courses.list().then((cs) => (courses = cs.map((c) => c.name).sort())).catch(() => {});
-		// Default to the current year so the summary is meaningful out of the gate.
-		const now = new Date();
-		const firstDay = new Date(now.getFullYear(), 0, 1);
-		const lastDay = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
-		startDate = formatDateForInput(firstDay);
-		endDate = formatDateForInput(lastDay);
-		loadPayments();
+		// Default to this month (same as the "This month" quick filter)
+		setQuickRange('month');
 	});
 
 	function formatDateForInput(d: Date): string {
