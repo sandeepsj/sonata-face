@@ -2,8 +2,8 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { Users, Plus, Lock, LockOpen } from 'lucide-svelte';
-	import { api, canAccess, errorMessage, fieldErrors, toast } from '$lib';
+	import { Users, Lock, LockOpen } from 'lucide-svelte';
+	import { api, canAccess, errorMessage, toast } from '$lib';
 	import type { Course, StudentSession } from '$lib/api/types';
 	import { formatDate } from '$lib/utils/format';
 	import Badge from '$lib/components/Badge.svelte';
@@ -22,10 +22,6 @@
 	let error = $state('');
 	let statusFilter = $state<StatusFilter>(legacy ? 'ACTIVE' : 'ALL');
 
-	// add course
-	let newName = $state('');
-	let adding = $state(false);
-	let addError = $state('');
 
 	let busy = $state(false);
 
@@ -88,28 +84,6 @@
 		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
-	async function addCourse(e: Event) {
-		e.preventDefault();
-		addError = '';
-		if (!newName.trim()) {
-			addError = 'Enter a course name';
-			return;
-		}
-		adding = true;
-		try {
-			const created = await api.courses.create(newName);
-			toast.ok(`Course "${created.name}" added`);
-			newName = '';
-			if (legacy) statusFilter = 'ACTIVE';
-			await load();
-			select(created.name);
-		} catch (err) {
-			addError = fieldErrors(err).name ?? errorMessage(err, 'Failed to add course');
-		} finally {
-			adding = false;
-		}
-	}
-
 	async function toggleClosed(c: Course) {
 		const closing = c.status === 'ACTIVE';
 		const msg = closing
@@ -148,7 +122,7 @@
 		<div class="page-head-row">
 			<div>
 				<h1 class="page-title">Courses &amp; <em>students</em></h1>
-				<p class="page-subtitle">Courses and who is enrolled in them. Fees are set on the Fees page.</p>
+				<p class="page-subtitle">Courses and who is enrolled in them. New courses and their fees are added on the Fees page.</p>
 			</div>
 			{#if legacy}
 				<div class="seg" role="radiogroup" aria-label="Course status">
@@ -216,15 +190,6 @@
 						<div class="muted" style="padding: 18px; text-align: center; font-size: 13px;">No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} courses.</div>
 					{/each}
 				</div>
-				{#if canWriteCourse}
-					<form class="add-course" onsubmit={addCourse}>
-						<input class="input-s" class:input-error-s={addError} placeholder="New course name" bind:value={newName} disabled={adding} aria-label="New course name" />
-						<button class="btn-s btn-secondary-s" type="submit" disabled={adding}>
-							{#if adding}<span class="spinner"></span>{:else}<Plus size={14} strokeWidth={1.6} />{/if} Add
-						</button>
-					</form>
-					{#if addError}<div class="field-error" style="padding: 0 10px 10px;">{addError}</div>{/if}
-				{/if}
 			</aside>
 
 			<section class="course-detail">
@@ -271,7 +236,7 @@
 						{/if}
 					{/key}
 				{:else}
-					<div class="callout info"><div class="callout-body">{courses.length === 0 ? 'No courses yet. Add one to get started.' : 'Select a course to view details.'}</div></div>
+					<div class="callout info"><div class="callout-body">{courses.length === 0 ? 'No courses yet. Add one on the Fees page, in a fee structure.' : 'Select a course to view details.'}</div></div>
 				{/if}
 			</section>
 		</div>
@@ -491,5 +456,4 @@
 	}
 
 	.course-row.is-closed .course-row-name { color: var(--fg-muted); }
-	.add-course { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
 </style>

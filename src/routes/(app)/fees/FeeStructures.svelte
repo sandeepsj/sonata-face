@@ -19,6 +19,10 @@
 	let loadError = $state('');
 
 	let canWrite = $derived($canAccess('/api/fee-structures/**', 'write'));
+	// New courses are created from the structure editor (there is no other "add course" screen)
+	let canAddCourse = $derived($canAccess('/api/courses/**', 'write'));
+	/** Courses to create when the structure is saved, each with its amount in this structure */
+	let newCourses: { name: string; amount: string }[] = $state([]);
 
 	// editor: one amount row per course; a blank amount means the course isn't billed
 	let editorOpen = $state(false);
@@ -79,6 +83,7 @@
 		termMonths = fs?.termMonths ?? 3;
 		amounts = Object.fromEntries(courses.map((c) => [c.name, '']));
 		for (const a of fs?.amounts ?? []) amounts[a.courseName] = String(a.amount);
+		newCourses = [];
 		formError = '';
 		errors = {};
 		editorOpen = true;
@@ -91,12 +96,24 @@
 		if (!Number.isInteger(m) || m < 1 || m > 12) e.termMonths = 'A whole number of months from 1 to 12';
 		const rows = Object.entries(amounts).filter(([, v]) => String(v).trim() !== '');
 		if (rows.some(([, v]) => !(Number(v) >= 0))) e.amounts = 'Amounts must be 0 or more';
+		const known = new Set(courses.map((c) => c.name.toLowerCase()));
+		const seen = new Set<string>();
+		for (const nc of newCourses) {
+			const n = nc.name.trim().toLowerCase();
+			if (!n) e.newCourses = 'Give each new course a name';
+			else if (known.has(n) || seen.has(n)) e.newCourses = `"${nc.name.trim()}" already exists`;
+			else if (String(nc.amount).trim() === '' || !(Number(nc.amount) >= 0)) e.newCourses = `Enter an amount of 0 or more for "${nc.name.trim()}"`;
+			seen.add(n);
+		}
 		errors = e;
 		if (Object.keys(e).length) return null;
 		return {
 			name: name.trim(),
 			termMonths: m,
-			amounts: rows.map(([courseName, v]) => ({ courseName, amount: Number(v) }))
+			amounts: [
+				...rows.map(([courseName, v]) => ({ courseName, amount: Number(v) })),
+				...newCourses.map((nc) => ({ courseName: nc.name.trim(), amount: Number(nc.amount) }))
+			]
 		};
 	}
 
@@ -106,6 +123,7 @@
 		if (!body) return;
 		saving = true;
 		try {
+			await createNewCourses();
 			if (editing?.usedInTimeline) {
 				// On the timeline: show the impact first, apply after an explicit confirmation
 				const dry = await api.feeStructures.update(editing.id, body, true);
@@ -125,6 +143,21 @@
 			errors = fieldErrors(e);
 		} finally {
 			saving = false;
+		}
+	}
+
+	/** A structure can only name existing courses, so create the new ones first (each one once) */
+	async function createNewCourses() {
+		while (newCourses.length) {
+			const nc = newCourses[0];
+			try {
+				const created = await api.courses.create(nc.name.trim());
+				courses = [...courses, created].sort((a, b) => a.name.localeCompare(b.name));
+				amounts[created.name] = String(nc.amount);
+				newCourses = newCourses.slice(1);
+			} catch (e) {
+				throw new Error(`Couldn't add course "${nc.name.trim()}": ${errorMessage(e)}`);
+			}
 		}
 	}
 
@@ -252,13 +285,38 @@
 								</td>
 							</tr>
 						{:else}
-							<tr><td class="muted">Add a course first.</td></tr>
+							{#if newCourses.length === 0}<tr><td class="muted">No courses yet. Add one below.</td></tr>{/if}
+						{/each}
+						{#each newCourses as nc, i}
+							<tr>
+								<td>
+									<div style="display:flex; align-items:center; gap: 6px;">
+										<Badge kind="accent">New</Badge>
+										<input class="input-s" placeholder="Course name" bind:value={nc.name} disabled={saving} aria-label="New course name" />
+									</div>
+								</td>
+								<td style="width: 180px;">
+									<div style="display:flex; gap: 4px;">
+										<input class="input-s" type="number" min="0" step="0.01" placeholder="Amount" bind:value={nc.amount} disabled={saving} aria-label="New course amount" />
+										<button type="button" class="btn-s btn-ghost-s btn-icon-s" style="color: var(--danger);" onclick={() => (newCourses = newCourses.filter((_, j) => j !== i))} disabled={saving} aria-label="Remove new course"><Trash2 size={13} /></button>
+									</div>
+								</td>
+							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
+			{#if canAddCourse}
+				<button type="button" class="btn-s btn-ghost-s btn-sm-s" style="margin-top: 6px;" onclick={() => (newCourses = [...newCourses, { name: '', amount: '' }])} disabled={saving}>
+					<Plus size={13} strokeWidth={1.8} /> Add a new course
+				</button>
+			{/if}
+			<FieldError {errors} field="newCourses" />
 			<FieldError {errors} field="amounts" />
-			<div class="muted" style="font-size: 12px; margin-top: 6px;">Leave a course blank to not bill it while this structure applies. 0 is allowed.</div>
+			<div class="muted" style="font-size: 12px; margin-top: 6px;">
+				Leave a course blank to not bill it while this structure applies. 0 is allowed.
+				{#if canAddCourse}A new course is billed only under the structures that list it: add it to the structure in force today to bill it from now.{/if}
+			</div>
 		</div>
 		<ErrorCallout message={formError} />
 	</form>
