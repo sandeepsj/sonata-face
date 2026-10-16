@@ -176,26 +176,29 @@
 			{#each structures as fs (fs.id)}
 				{@const open = expanded.has(fs.id)}
 				<div class="fs-row">
-					<div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; flex-wrap: wrap;">
+					<div style="display:flex; align-items:flex-start; justify-content:space-between; gap: 8px;">
 						<button type="button" class="fs-head" onclick={() => toggle(fs.id)} aria-expanded={open}>
-							<ChevronRight size={14} strokeWidth={1.8} class="fs-chev {open ? 'open' : ''}" />
-							<span style="font-family: var(--font-serif); font-size: 16px; font-weight: 500;">{fs.name}</span>
-							{#if fs.usedInTimeline}<Badge kind="ok">On the timeline</Badge>{:else}<Badge kind="neutral">Not used</Badge>{/if}
-							<span class="muted" style="font-size: 12px;">
+							<span class="fs-title">
+								<ChevronRight size={14} strokeWidth={1.8} class="fs-chev {open ? 'open' : ''}" />
+								<span style="font-family: var(--font-serif); font-size: 16px; font-weight: 500;">{fs.name}</span>
+								{#if fs.usedInTimeline}<Badge kind="ok">On the timeline</Badge>{:else}<Badge kind="neutral">Not used</Badge>{/if}
+							</span>
+							<span class="muted fs-sub">
 								{termLabel(fs.termMonths)} · {fs.amounts.length} {fs.amounts.length === 1 ? 'course' : 'courses'} · {amountRange(fs)}
 							</span>
 						</button>
 						{#if canWrite}
-								<div style="display:flex; gap: 4px;">
-									<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => openEditor(fs)}><Pencil size={13} /> Edit</button>
-									<button
-										class="btn-s btn-ghost-s btn-sm-s"
-										style="color: var(--danger);"
-										onclick={() => remove(fs)}
-										disabled={fs.usedInTimeline}
-										title={fs.usedInTimeline ? 'Remove it from the fee timeline first' : 'Delete'}
-									><Trash2 size={13} /> Delete</button>
-								</div>
+							<div style="display:flex; gap: 2px; flex-shrink: 0;">
+								<button class="btn-s btn-ghost-s btn-icon-s" onclick={() => openEditor(fs)} title="Edit" aria-label="Edit {fs.name}"><Pencil size={13} /></button>
+								<button
+									class="btn-s btn-ghost-s btn-icon-s"
+									style="color: var(--danger);"
+									onclick={() => remove(fs)}
+									disabled={fs.usedInTimeline}
+									title={fs.usedInTimeline ? 'Remove it from the fee timeline first' : 'Delete'}
+									aria-label="Delete {fs.name}"
+								><Trash2 size={13} /></button>
+							</div>
 						{/if}
 					</div>
 					{#if open}
@@ -287,11 +290,22 @@
 		border-radius: 10px;
 		background: var(--surface);
 	}
-	.fs-head {
+	.fs-title {
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+	.fs-sub {
+		font-size: 12px;
+		padding-left: 22px;
+	}
+	.fs-head {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+		min-width: 0;
 		background: none;
 		border: 0;
 		padding: 0;

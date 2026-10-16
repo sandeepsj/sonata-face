@@ -25,19 +25,33 @@
 		</div>
 	</div>
 
-	<div class="fees-stack">
+	<div class="fees-grid">
+		<div class="fees-col">
+			<FeeStructures bind:this={structuresPanel} onChanged={() => timelinePanel?.load()} />
+		</div>
 		{#if canReadTimeline}
-			<FeeTimeline bind:this={timelinePanel} onChanged={() => structuresPanel?.load()} />
+			<div class="fees-col">
+				<FeeTimeline bind:this={timelinePanel} onChanged={() => structuresPanel?.load()} />
+			</div>
 		{/if}
-		<FeeStructures bind:this={structuresPanel} onChanged={() => timelinePanel?.load()} />
 	</div>
 </div>
 
 <style>
-	.fees-stack {
+	.fees-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+		gap: 16px;
+		align-items: start;
+	}
+	.fees-col {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
-		max-width: 1100px;
+	}
+	@media (max-width: 1100px) {
+		.fees-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 </style>

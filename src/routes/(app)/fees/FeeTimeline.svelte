@@ -297,14 +297,13 @@
 			{#if terms.length === 0}
 				<div class="callout info"><div class="callout-body">No terms in this range.</div></div>
 			{:else}
-				<div class="tbl-wrap">
+				<div class="tbl-wrap preview-scroll">
 					<table class="tbl">
-						<thead><tr><th>Term</th><th>Dates</th><th>Fee structure</th><th>Courses billed</th></tr></thead>
+						<thead><tr><th>Term</th><th>Fee structure</th><th>Courses billed</th></tr></thead>
 						<tbody>
 							{#each terms as p}
 								<tr>
-									<td style="white-space: nowrap;"><span class="swatch" style="background:{colorOf(p.feeStructureId)}"></span><span class="strong">{formatPeriod(p.periodStart, p.periodEnd)}</span></td>
-									<td class="muted" style="white-space: nowrap; font-size: 12px;">{formatDate(p.periodStart)} – {formatDate(p.periodEnd)}</td>
+									<td style="white-space: nowrap;" title="{formatDate(p.periodStart)} – {formatDate(p.periodEnd)}"><span class="swatch" style="background:{colorOf(p.feeStructureId)}"></span><span class="strong">{formatPeriod(p.periodStart, p.periodEnd)}</span></td>
 									<td>{p.feeStructureName}</td>
 									<td class="muted" style="font-size: 12px; white-space: nowrap;">{amountSummary(p)}</td>
 								</tr>
@@ -364,6 +363,16 @@
 />
 
 <style>
+	.preview-scroll {
+		max-height: 380px;
+		overflow-y: auto;
+	}
+	.preview-scroll thead th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--bg-elev);
+	}
 	.swatch {
 		display: inline-block;
 		width: 9px;
