@@ -388,7 +388,7 @@ export const payments = {
 	create: (body: PaymentCreateRequest) => post<Payment>('/api/payments', body),
 	/** 409 when already inactive */
 	deactivate: (id: number) => patch<Payment>(`/api/payments/${id}/deactivate`),
-	/** ADDITIONAL → REGULAR; `courseName` needed when the payment has none */
+	/** ADDITIONAL → REGULAR. With a partial `amount`, returns the new REGULAR payment (`convertedFrom` = id). */
 	convertToCourseFee: (id: number, body: ConvertRequest = {}) =>
 		post<Payment>(`/api/payments/${id}/convert-to-course-fee`, body)
 };

@@ -26,6 +26,9 @@
 	let convertDues: Due[] = [];
 	let convertDuesFor = '';
 	let convertDuesLoading = false;
+	/** How much of the payment to convert; less than its amount converts only part */
+	let convertAmount: number | string = '';
+	let amountTouched = false;
 
 	async function loadConvertDues(p: Payment, course: string) {
 		const key = `${p.id}|${course}`;
@@ -36,7 +39,14 @@
 		convertDuesLoading = true;
 		try {
 			const list = await api.dues.list({ studentId: p.student.admissionNo, courseName: course });
-			if (convertDuesFor === key) convertDues = list;
+			if (convertDuesFor === key) {
+				convertDues = list;
+				// default: the smaller of the payment and what is owed for the course (all of it when nothing is owed)
+				if (!amountTouched) {
+					const owed = list.reduce((sum, d) => sum + Math.max(0, d.balance), 0);
+					convertAmount = owed > 0 ? Math.min(p.amountPaid, owed) : p.amountPaid;
+				}
+			}
 		} catch {
 			if (convertDuesFor === key) convertDues = [];
 		} finally {
@@ -46,9 +56,12 @@
 	$: if (toConvert && !convertLoading) loadConvertDues(toConvert, convertCourse);
 
 	type Allocation = { due: Due; applied: number; clears: boolean };
-	/** Like the backend: the payment (amount + discounts) fills the oldest term with a balance first */
-	function allocate(p: Payment, dues: Due[]): { rows: Allocation[]; credit: number } {
-		let left = (p.amountPaid || 0) + (p.discountAmount || 0);
+	/**
+	 * Like the backend: what is converted fills the oldest term with a balance first. A whole payment brings its
+	 * discounts; a partial one is just the amount (the discounts stay on the additional payment).
+	 */
+	function allocate(p: Payment, dues: Due[], amount: number): { rows: Allocation[]; credit: number } {
+		let left = amount >= p.amountPaid ? p.amountPaid + (p.discountAmount || 0) : Math.max(0, amount);
 		const rows: Allocation[] = [];
 		for (const d of [...dues].filter((x) => x.balance > 0).sort((a, b) => a.periodStart.localeCompare(b.periodStart))) {
 			if (left <= 0) break;
@@ -58,7 +71,9 @@
 		}
 		return { rows, credit: Math.max(0, left) };
 	}
-	$: convertPlan = toConvert ? allocate(toConvert, convertDues) : { rows: [], credit: 0 };
+	$: convertAmountNum = Number(convertAmount) || 0;
+	$: partial = !!toConvert && convertAmountNum > 0 && convertAmountNum < toConvert.amountPaid;
+	$: convertPlan = toConvert ? allocate(toConvert, convertDues, convertAmountNum) : { rows: [], credit: 0 };
 
 	/** The course a label names, e.g. "MUDRA FEE" → "Mudra" (longest match wins) */
 	function courseInLabel(label: string, options: string[]): string {
@@ -74,6 +89,8 @@
 		convertErrors = {};
 		convertDues = [];
 		convertDuesFor = '';
+		convertAmount = p.amountPaid;
+		amountTouched = false;
 		convertLoading = true;
 		try {
 			const [sessions, active] = await Promise.all([
@@ -101,12 +118,21 @@
 			convertErrors = { courseName: 'Choose a course' };
 			return;
 		}
+		if (!(convertAmountNum > 0) || convertAmountNum > toConvert.amountPaid) {
+			convertErrors = { amount: `Enter an amount from ₹1 to ${money(toConvert.amountPaid)}` };
+			return;
+		}
 		converting = true;
 		try {
-			await api.payments.convertToCourseFee(toConvert.id, {
-				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined
+			const res = await api.payments.convertToCourseFee(toConvert.id, {
+				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined,
+				amount: partial ? convertAmountNum : undefined
 			});
-			toast.ok(`Receipt ${toConvert.id} is now a ${convertCourse} course fee. Dues updated.`);
+			toast.ok(
+				partial
+					? `${money(convertAmountNum)} of receipt ${toConvert.id} is now a ${convertCourse} course fee (receipt ${res.id}). ${money(toConvert.amountPaid - convertAmountNum)} stays additional. Dues updated.`
+					: `Receipt ${toConvert.id} is now a ${convertCourse} course fee. Dues updated.`
+			);
 			toConvert = null;
 			await loadPayments();
 		} catch (e) {
@@ -565,7 +591,7 @@
 										{#if p.paymentType === 'REGULAR'}<Badge kind="info">Course fee</Badge>
 										{:else}<Badge kind="accent">Additional</Badge>{/if}
 										{#if !p.isActive}<Badge kind="neutral">Deactivated</Badge>{/if}
-										{#if p.originalType}<div class="muted" style="font-size: 10.5px;" title="Converted by {p.convertedBy}">converted</div>{/if}
+										{#if p.originalType}<div class="muted" style="font-size: 10.5px;" title="Converted by {p.convertedBy}">converted{p.convertedFrom ? ` from #${p.convertedFrom}` : ''}</div>{/if}
 									</td>
 									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.label || '—'}</td>
 									<td class="muted" style="max-width: 180px; white-space: normal; font-size: 11.5px;">{p.remarks || '—'}</td>
@@ -727,6 +753,30 @@
 				<FieldError errors={convertErrors} field="courseName" />
 			</div>
 			{#if convertCourse}
+				<div class="field">
+					<label for="cv-amount">Amount to convert *</label>
+					<input
+						id="cv-amount"
+						type="number"
+						min="1"
+						max={toConvert.amountPaid}
+						step="0.01"
+						class="input-s"
+						class:input-error-s={convertErrors.amount}
+						bind:value={convertAmount}
+						oninput={() => (amountTouched = true)}
+						disabled={converting}
+					/>
+					{#if partial}
+						<span class="hint">
+							Converts {money(convertAmountNum)} into a new course-fee receipt. The other {money(toConvert.amountPaid - convertAmountNum)} stays an
+							additional payment{toConvert.discountAmount ? ', with its discounts' : ''}.
+						</span>
+					{:else}
+						<span class="hint">The whole payment becomes a course fee{toConvert.discountAmount ? ', with its discounts' : ''}.</span>
+					{/if}
+					<FieldError errors={convertErrors} field="amount" />
+				</div>
 				<div>
 					<div class="kpi-label" style="margin-bottom: 6px;">Terms this will pay</div>
 					{#if convertDuesLoading}
@@ -757,7 +807,7 @@
 						{/if}
 					{/if}
 					<div class="muted" style="font-size: 12px; margin-top: 6px;">
-						A course fee pays the oldest unpaid term first. The payment keeps its amount, date, discounts and remarks, and the conversion is recorded with your name.
+						A course fee pays the oldest unpaid term first. The conversion keeps the date and remarks and is recorded with your name.
 					</div>
 				</div>
 			{/if}

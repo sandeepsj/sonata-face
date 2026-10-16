@@ -185,10 +185,11 @@ export type PaymentCreateRequest = Override<
 	{ discounts?: DiscountInput[] }
 >;
 
-export interface ConvertRequest {
-	/** Needed when the payment has no course */
-	courseName?: string;
-}
+/**
+ * `courseName` is needed when the payment has none. `amount` (0 < amount ≤ amountPaid) converts only part: the
+ * response is then a new REGULAR payment with `convertedFrom`, and the original keeps the rest and its discounts.
+ */
+export type ConvertRequest = Schemas['ConvertRequest'];
 
 /** Query of GET /api/payments */
 export type PaymentQuery = NonNullable<Paths['/api/payments']['get']['parameters']['query']>;

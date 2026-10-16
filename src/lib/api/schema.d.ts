@@ -988,6 +988,10 @@ export interface components {
             /** Format: int32 */
             updated?: number;
         };
+        ConvertRequest: {
+            amount?: number;
+            courseName?: string;
+        };
         Course: {
             /** Format: date-time */
             closedAt?: string;
@@ -1156,6 +1160,8 @@ export interface components {
             /** Format: date-time */
             convertedAt?: string;
             convertedBy?: string;
+            /** Format: int64 */
+            convertedFrom?: number;
             courseName?: string;
             /** Format: date-time */
             createdAt?: string;
@@ -4677,9 +4683,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": {
-                    [key: string]: string;
-                };
+                "application/json": components["schemas"]["ConvertRequest"];
             };
         };
         responses: {

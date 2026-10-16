@@ -28,6 +28,25 @@
 	let converting = $state(false);
 	let convertError = $state('');
 	let convertErrors: Record<string, string> = $state({});
+	/** How much of the payment to convert; less than its amount converts only part */
+	let convertAmount: number | string = $state('');
+	let amountTouched = $state(false);
+	let convertAmountNum = $derived(Number(convertAmount) || 0);
+	let partial = $derived.by(() => {
+		const p = toConvert as Payment | null;
+		return !!p && convertAmountNum > 0 && convertAmountNum < p.amountPaid;
+	});
+	/** What the student owes for the chosen course */
+	let owedForCourse = $derived(
+		st.dues.data.filter((d) => d.courseName === convertCourse).reduce((sum, d) => sum + Math.max(0, d.balance), 0)
+	);
+	// default: the smaller of the payment and what is owed for the course (all of it when nothing is owed)
+	$effect(() => {
+		const p = toConvert as Payment | null;
+		const owed = owedForCourse;
+		if (!p || !convertCourse || amountTouched) return;
+		convertAmount = owed > 0 ? Math.min(p.amountPaid, owed) : p.amountPaid;
+	});
 
 	let sessionCourses = $derived([...new Set(st.sessions.data.map((s) => s.course.name))]);
 	let convertOptions = $derived(courses.filter((c) => sessionCourses.includes(c.name)));
@@ -60,6 +79,8 @@
 	async function openConvert(p: Payment) {
 		toConvert = p;
 		convertCourse = '';
+		convertAmount = p.amountPaid;
+		amountTouched = false;
 		convertError = '';
 		convertErrors = {};
 		try {
@@ -80,13 +101,20 @@
 		convertErrors = {};
 		convertError = '';
 		if (!convertCourse) convertErrors.courseName = 'Choose a course';
+		if (!(convertAmountNum > 0) || convertAmountNum > toConvert.amountPaid)
+			convertErrors.amount = `Enter an amount from ₹1 to ₹${toConvert.amountPaid}`;
 		if (Object.keys(convertErrors).length) return;
 		converting = true;
 		try {
 			await api.payments.convertToCourseFee(toConvert.id, {
-				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined
+				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined,
+				amount: partial ? convertAmountNum : undefined
 			});
-			toast.ok('Converted to a course fee. Dues updated.');
+			toast.ok(
+				partial
+					? `₹${convertAmountNum} converted to a course fee; ₹${toConvert.amountPaid - convertAmountNum} stays additional. Dues updated.`
+					: 'Converted to a course fee. Dues updated.'
+			);
 			toConvert = null;
 			await currentStudentStore.refreshAfterWrite(studentId);
 		} catch (e) {
@@ -199,7 +227,7 @@
 <Modal open={toConvert !== null} title="Convert to course fee" subtitle={toConvert ? `"${toConvert.label}" · ${formatDate(toConvert.date)} · settles ₹${amountCleared(toConvert)}` : ''} size="lg" busy={converting} onClose={() => (toConvert = null)}>
 	{#if toConvert}
 		<div style="display:flex; flex-direction:column; gap: 14px;">
-			<div class="callout info"><div class="callout-body">The payment keeps its amount, date, discounts and remarks. It becomes a course fee that pays the oldest unpaid term of the course first, and the conversion is recorded with your name.</div></div>
+			<div class="callout info"><div class="callout-body">A course fee pays the oldest unpaid term of the course first. The conversion keeps the date and remarks and is recorded with your name.</div></div>
 			<div class="field">
 				<label for="cv-course">Course *</label>
 				<select id="cv-course" class="input-s" bind:value={convertCourse} disabled={converting}>
@@ -209,6 +237,21 @@
 				{#if convertOptions.length === 0}<span class="hint">A course fee needs a session in its course; the student has none.</span>{/if}
 				<FieldError errors={convertErrors} field="courseName" />
 			</div>
+			{#if convertCourse}
+				<div class="field">
+					<label for="cv-amount">Amount to convert *</label>
+					<input id="cv-amount" type="number" min="1" max={toConvert.amountPaid} step="0.01" class="input-s" class:input-error-s={convertErrors.amount} bind:value={convertAmount} oninput={() => (amountTouched = true)} disabled={converting} />
+					<span class="hint">
+						{#if owedForCourse > 0}{convertCourse} owes ₹{owedForCourse}. {/if}
+						{#if partial}
+							Converts ₹{convertAmountNum} into a new course-fee receipt; the other ₹{toConvert.amountPaid - convertAmountNum} stays an additional payment{toConvert.discountAmount ? ', with its discounts' : ''}.
+						{:else}
+							The whole payment becomes a course fee{toConvert.discountAmount ? ', with its discounts' : ''}.
+						{/if}
+					</span>
+					<FieldError errors={convertErrors} field="amount" />
+				</div>
+			{/if}
 			<ErrorCallout message={convertError} />
 		</div>
 	{/if}
