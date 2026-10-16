@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Plus, Pencil, Trash2 } from 'lucide-svelte';
+	import { Plus, Pencil, Trash2, ChevronRight } from 'lucide-svelte';
 	import { api, canAccess, errorMessage, fieldErrors, toast } from '$lib';
 	import type { Course, FeeStructure, FeeStructureRequest, Impact } from '$lib/api/types';
 	import { money } from '$lib/utils/format';
@@ -49,6 +49,23 @@
 	}
 
 	onMount(load);
+
+	/** Structures whose amounts are shown; the rest show a one-line summary */
+	let expanded: Set<number> = $state(new Set());
+	function toggle(id: number) {
+		const next = new Set(expanded);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expanded = next;
+	}
+
+	function amountRange(fs: FeeStructure): string {
+		if (fs.amounts.length === 0) return 'no course billed';
+		const xs = fs.amounts.map((a) => a.amount);
+		const lo = Math.min(...xs);
+		const hi = Math.max(...xs);
+		return lo === hi ? `${money(lo)} per term` : `${money(lo)}–${money(hi)} per term`;
+	}
 
 	function termLabel(m: number): string {
 		if (m === 1) return 'Monthly';
@@ -157,17 +174,18 @@
 			<div class="callout info"><div class="callout-body">No fee structures yet.</div></div>
 		{:else}
 			{#each structures as fs (fs.id)}
-				<div class="card-s">
-					<div class="card-body-s">
-						<div style="display:flex; align-items:flex-start; justify-content:space-between; gap: 10px; flex-wrap: wrap;">
-							<div>
-								<div style="display:flex; align-items:center; gap: 8px;">
-									<span style="font-family: var(--font-serif); font-size: 16px; font-weight: 500;">{fs.name}</span>
-									{#if fs.usedInTimeline}<Badge kind="ok">On the timeline</Badge>{:else}<Badge kind="neutral">Not used</Badge>{/if}
-								</div>
-								<div class="muted" style="font-size: 12px; margin-top: 2px;">{termLabel(fs.termMonths)} · {fs.amounts.length} {fs.amounts.length === 1 ? 'course' : 'courses'}</div>
-							</div>
-							{#if canWrite}
+				{@const open = expanded.has(fs.id)}
+				<div class="fs-row">
+					<div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; flex-wrap: wrap;">
+						<button type="button" class="fs-head" onclick={() => toggle(fs.id)} aria-expanded={open}>
+							<ChevronRight size={14} strokeWidth={1.8} class="fs-chev {open ? 'open' : ''}" />
+							<span style="font-family: var(--font-serif); font-size: 16px; font-weight: 500;">{fs.name}</span>
+							{#if fs.usedInTimeline}<Badge kind="ok">On the timeline</Badge>{:else}<Badge kind="neutral">Not used</Badge>{/if}
+							<span class="muted" style="font-size: 12px;">
+								{termLabel(fs.termMonths)} · {fs.amounts.length} {fs.amounts.length === 1 ? 'course' : 'courses'} · {amountRange(fs)}
+							</span>
+						</button>
+						{#if canWrite}
 								<div style="display:flex; gap: 4px;">
 									<button class="btn-s btn-ghost-s btn-sm-s" onclick={() => openEditor(fs)}><Pencil size={13} /> Edit</button>
 									<button
@@ -178,19 +196,20 @@
 										title={fs.usedInTimeline ? 'Remove it from the fee timeline first' : 'Delete'}
 									><Trash2 size={13} /> Delete</button>
 								</div>
-							{/if}
-						</div>
-						<div class="terms-grid">
+						{/if}
+					</div>
+					{#if open}
+						<div class="amounts">
 							{#each fs.amounts as a (a.courseName)}
-								<div class="term-cell">
-									<div class="kpi-label">{a.courseName}</div>
-									<div style="font-family: var(--font-mono); font-size: 13px;">{money(a.amount)} <span class="muted">/ term</span></div>
+								<div class="amount-row">
+									<span class="amount-course" title={a.courseName}>{a.courseName}</span>
+									<span class="amount-value">{money(a.amount)}</span>
 								</div>
 							{:else}
 								<div class="muted" style="font-size: 12px;">No course is billed under this structure.</div>
 							{/each}
 						</div>
-					</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -262,16 +281,55 @@
 />
 
 <style>
-	.terms-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 8px;
-		margin-top: 12px;
-	}
-	.term-cell {
-		padding: 8px 10px;
-		background: var(--bg-elev);
+	.fs-row {
+		padding: 10px 12px;
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 10px;
+		background: var(--surface);
+	}
+	.fs-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		background: none;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+		color: inherit;
+	}
+	:global(.fs-chev) {
+		color: var(--fg-muted);
+		transition: transform 0.15s;
+	}
+	:global(.fs-chev.open) {
+		transform: rotate(90deg);
+	}
+	.amounts {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 2px 18px;
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top: 1px solid var(--border);
+	}
+	.amount-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 10px;
+		padding: 3px 0;
+		font-size: 12.5px;
+		border-bottom: 1px dashed var(--border);
+	}
+	.amount-course {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--fg-soft, var(--fg-muted));
+	}
+	.amount-value {
+		font-family: var(--font-mono);
+		white-space: nowrap;
 	}
 </style>

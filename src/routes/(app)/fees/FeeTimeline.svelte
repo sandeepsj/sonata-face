@@ -181,6 +181,16 @@
 		return res.recalculation ?? null;
 	}
 
+	/** '17 courses · ₹900–₹2,000' */
+	function amountSummary(p: PreviewTerm): string {
+		if (p.amounts.length === 0) return 'none';
+		const xs = p.amounts.map((a) => a.amount);
+		const lo = Math.min(...xs);
+		const hi = Math.max(...xs);
+		const n = `${p.amounts.length} course${p.amounts.length === 1 ? '' : 's'}`;
+		return `${n} · ${lo === hi ? money(lo) : `${money(lo)}–${money(hi)}`}`;
+	}
+
 	// --- band geometry for the preview strip ---
 	function dayNum(d: string) {
 		return Math.floor(parseLocal(d)!.getTime() / 86_400_000);
@@ -268,7 +278,7 @@
 	<div class="course-card-head" style="display:flex; align-items:flex-end; justify-content:space-between; gap: 10px; flex-wrap: wrap;">
 		<div>
 			<span class="course-card-title"><CalendarRange size={15} strokeWidth={1.6} style="vertical-align: -2px;" /> Terms preview</span>
-			<div class="muted" style="font-size: 12px; margin-top: 2px;">The terms the current timeline produces, with each course's amount. Updated after every change.</div>
+			<div class="muted" style="font-size: 12px; margin-top: 2px;">The terms the current timeline produces. Each course's amount is on its fee structure. Updated after every change.</div>
 		</div>
 		<div style="display:flex; gap: 8px; align-items: flex-end;">
 			<div class="field"><label for="pv-from">From</label><input id="pv-from" type="date" class="input-s" bind:value={from} onchange={loadPreview} /></div>
@@ -289,15 +299,14 @@
 			{:else}
 				<div class="tbl-wrap">
 					<table class="tbl">
-						<thead><tr><th>Term</th><th>Fee structure</th><th>Amount per course</th></tr></thead>
+						<thead><tr><th>Term</th><th>Dates</th><th>Fee structure</th><th>Courses billed</th></tr></thead>
 						<tbody>
 							{#each terms as p}
 								<tr>
-									<td><span class="swatch" style="background:{colorOf(p.feeStructureId)}"></span>{formatPeriod(p.periodStart, p.periodEnd)} <span class="muted" style="font-size: 11px;">({formatDate(p.periodStart)} – {formatDate(p.periodEnd)})</span></td>
+									<td style="white-space: nowrap;"><span class="swatch" style="background:{colorOf(p.feeStructureId)}"></span><span class="strong">{formatPeriod(p.periodStart, p.periodEnd)}</span></td>
+									<td class="muted" style="white-space: nowrap; font-size: 12px;">{formatDate(p.periodStart)} – {formatDate(p.periodEnd)}</td>
 									<td>{p.feeStructureName}</td>
-									<td class="muted" style="font-size: 12px;">
-										{#each p.amounts as a, i}{i ? ' · ' : ''}{a.courseName} <span style="font-family: var(--font-mono); color: var(--fg);">{money(a.amount)}</span>{:else}No course billed{/each}
-									</td>
+									<td class="muted" style="font-size: 12px; white-space: nowrap;">{amountSummary(p)}</td>
 								</tr>
 							{/each}
 						</tbody>
