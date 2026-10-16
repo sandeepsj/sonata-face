@@ -1,12 +1,82 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, errorMessage } from '$lib';
+	import { api, canAccess, errorMessage, fieldErrors, toast } from '$lib';
 	import type { Payment, PaymentType } from '$lib/api/types';
 	import { formatDate as formatPeriodDate } from '$lib/utils/format';
-	import { Calendar, Filter, Download, Printer, AlertCircle } from 'lucide-svelte';
+	import { Calendar, Filter, Download, Printer, AlertCircle, ArrowRightLeft } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
 	import Select from '$lib/components/Select.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
+	import FieldError from '$lib/components/FieldError.svelte';
+
+	$: canWrite = $canAccess('/api/payments/**', 'write');
+
+	// ---- convert an additional payment into a course fee ----
+	let toConvert: Payment | null = null;
+	/** Courses the student is enrolled in now (a course fee needs an ongoing session in an active course) */
+	let convertOptions: string[] = [];
+	let convertCourse = '';
+	let convertLoading = false;
+	let converting = false;
+	let convertError = '';
+	let convertErrors: Record<string, string> = {};
+
+	/** The course a label names, e.g. "MUDRA FEE" → "Mudra" (longest match wins) */
+	function courseInLabel(label: string, options: string[]): string {
+		const l = label.toLowerCase();
+		return [...options].sort((a, b) => b.length - a.length).find((c) => l.includes(c.toLowerCase())) ?? '';
+	}
+
+	async function openConvert(p: Payment) {
+		toConvert = p;
+		convertOptions = [];
+		convertCourse = '';
+		convertError = '';
+		convertErrors = {};
+		convertLoading = true;
+		try {
+			const [sessions, active] = await Promise.all([
+				api.sessions.list({ studentId: p.student.admissionNo, active: true }),
+				api.courses.list('ACTIVE')
+			]);
+			const open = new Set(active.map((c) => c.name));
+			convertOptions = [...new Set(sessions.map((s) => s.course.name))].filter((c) => open.has(c)).sort();
+			convertCourse =
+				(p.courseName && convertOptions.includes(p.courseName) ? p.courseName : '') ||
+				courseInLabel(`${p.label ?? ''} ${p.remarks ?? ''}`, convertOptions) ||
+				(convertOptions.length === 1 ? convertOptions[0] : '');
+		} catch (e) {
+			convertError = errorMessage(e, "Couldn't load the student's courses");
+		} finally {
+			convertLoading = false;
+		}
+	}
+
+	async function convert() {
+		if (!toConvert) return;
+		convertError = '';
+		convertErrors = {};
+		if (!convertCourse) {
+			convertErrors = { courseName: 'Choose a course' };
+			return;
+		}
+		converting = true;
+		try {
+			await api.payments.convertToCourseFee(toConvert.id, {
+				courseName: convertCourse !== toConvert.courseName ? convertCourse : undefined
+			});
+			toast.ok(`Receipt ${toConvert.id} is now a ${convertCourse} course fee. Dues updated.`);
+			toConvert = null;
+			await loadPayments();
+		} catch (e) {
+			convertError = errorMessage(e, 'Failed to convert payment');
+			convertErrors = fieldErrors(e);
+		} finally {
+			converting = false;
+		}
+	}
 
 	let startDate = '';
 	let endDate = '';
@@ -442,6 +512,7 @@
 								<th class="num">Paid</th>
 								<th class="num">Discount</th>
 								<th class="num">Total</th>
+								{#if canWrite}<th></th>{/if}
 							</tr>
 						</thead>
 						<tbody>
@@ -467,15 +538,25 @@
 									<td class="num"><Money value={p.amountPaid} /></td>
 									<td class="num"><Money value={p.discountAmount || 0} /></td>
 									<td class="num strong"><Money value={p.amountPaid + (p.discountAmount || 0)} /></td>
+									{#if canWrite}
+										<td style="white-space: nowrap;">
+											{#if p.paymentType === 'ADDITIONAL' && p.isActive}
+												<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => openConvert(p)} title="Recorded as additional by mistake? Make it a course fee">
+													<ArrowRightLeft size={12} strokeWidth={1.8} /> Convert
+												</button>
+											{/if}
+										</td>
+									{/if}
 								</tr>
 							{/each}
 						</tbody>
 						<tfoot>
 							<tr style="background: var(--bg-elev); font-weight: 600;">
-								<td colspan="8" style="text-align: right; padding: 12px 14px;">Total</td>
+								<td colspan="7" style="text-align: right; padding: 12px 14px;">Total</td>
 								<td class="num"><Money value={payments.reduce((s, p) => s + p.amountPaid, 0)} /></td>
 								<td class="num"><Money value={payments.reduce((s, p) => s + (p.discountAmount || 0), 0)} /></td>
 								<td class="num"><Money value={totalAmount} /></td>
+								{#if canWrite}<td></td>{/if}
 							</tr>
 						</tfoot>
 					</table>
@@ -567,6 +648,48 @@
 		</section>
 	</div>
 </div>
+
+
+<Modal
+	open={toConvert !== null}
+	title="Convert to course fee"
+	subtitle={toConvert ? `Receipt ${toConvert.id} · ${toConvert.student?.studentName ?? ''} · "${toConvert.label}" · ₹${(toConvert.amountPaid + (toConvert.discountAmount || 0)).toLocaleString('en-IN')}` : ''}
+	busy={converting}
+	onClose={() => (toConvert = null)}
+>
+	{#if toConvert}
+		<div style="display: flex; flex-direction: column; gap: 14px;">
+			<div class="callout info">
+				<div class="callout-body">
+					The payment keeps its amount, date, discounts and remarks. It becomes a course fee that pays the student's
+					oldest unpaid term of the course first, and the conversion is recorded with your name.
+				</div>
+			</div>
+			<div class="field">
+				<label for="cv-course">Course *</label>
+				{#if convertLoading}
+					<div><span class="spinner"></span></div>
+				{:else}
+					<select id="cv-course" class="input-s" bind:value={convertCourse} disabled={converting}>
+						<option value="">Choose a course…</option>
+						{#each convertOptions as c}<option value={c}>{c}</option>{/each}
+					</select>
+					{#if convertOptions.length === 0}
+						<span class="hint">The student has no ongoing session in an active course, so this can't become a course fee. Enrol them first.</span>
+					{/if}
+				{/if}
+				<FieldError errors={convertErrors} field="courseName" />
+			</div>
+			<ErrorCallout message={convertError} />
+		</div>
+	{/if}
+	{#snippet footer()}
+		<button class="btn-s btn-secondary-s" onclick={() => (toConvert = null)} disabled={converting}>Cancel</button>
+		<button class="btn-s btn-primary-s" onclick={convert} disabled={converting || convertLoading || !convertCourse}>
+			{#if converting}<span class="spinner"></span>{/if}Convert
+		</button>
+	{/snippet}
+</Modal>
 
 <style>
 	.summary-card .card-header { gap: 12px; flex-wrap: wrap; }
