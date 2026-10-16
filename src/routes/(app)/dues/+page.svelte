@@ -1,120 +1,119 @@
 <script lang="ts">
+	// All dues across the school, for a year or one term, grouped by course, term or status.
+	// GET /api/dues returns the rows; the group totals are added up here until the backend's aggregate
+	// endpoint (REQ-076.AC6, not built yet) exists.
 	import { onMount, tick } from 'svelte';
 	import { Filter, Download, Users, Book, Calendar, Hash, Printer } from 'lucide-svelte';
 	import { api, errorMessage } from '$lib';
-	import { DUE_STATUSES, type AggregateGroupBy, type AggregateRow, type Due, type DueStatus, type DuesSummary } from '$lib/api/types';
+	import { DUE_STATUSES, type Course, type Due, type DueStatus } from '$lib/api/types';
 	import { formatDate, formatPeriod, isoDate } from '$lib/utils/format';
 	import Money from '$lib/components/Money.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 
+	type GroupBy = 'course' | 'term' | 'status';
 	/** '' = open dues (DUE + PARTIALLY_PAID) */
 	type StatusFilter = '' | 'ALL' | DueStatus;
+	type Row = { key: string; count: number; amount: number; balance: number };
 
-	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 	const STATUS_LABEL: Record<DueStatus, string> = { DUE: 'Due', PARTIALLY_PAID: 'Partially paid', PAID: 'Paid' };
+	const thisYear = new Date().getFullYear();
+	const YEARS = Array.from({ length: 6 }, (_, i) => thisYear + 1 - i);
 
-	let groupBy = $state<AggregateGroupBy>('course');
+	let groupBy = $state<GroupBy>('course');
 	let statusFilter = $state<StatusFilter>('');
-	// filters on the period start date
-	let from = $state('');
-	let to = $state(isoDate());
+	let year = $state(thisYear);
+	/** periodStart of one term, or '' for the whole year */
+	let term = $state('');
+	let courseName = $state('');
+	let courses: Course[] = $state([]);
 
-	let rows = $state<AggregateRow[]>([]);
+	/** Every due whose term starts in the chosen year (and course) */
+	let all = $state<Due[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
 	let selectedKey = $state<string | null>(null);
-	let details = $state<Map<string, Due[]>>(new Map());
-	let loadingDetails = $state(false);
-	let courseSummary = $state<DuesSummary | null>(null);
-
 	let printKeys = $state<string[] | null>(null);
 	let printing = $state(false);
 
-	onMount(loadAggregates);
+	onMount(() => {
+		api.courses.list().then((c) => (courses = c.sort((a, b) => a.name.localeCompare(b.name)))).catch(() => {});
+		load();
+	});
 
-	async function loadAggregates() {
+	async function load() {
 		loading = true;
 		error = null;
 		try {
-			rows = await api.dues.aggregate(groupBy, from || undefined, to || undefined);
-			rows.sort((a, b) => (groupBy === 'month' ? b.key.localeCompare(a.key) : b.balance - a.balance));
-			details = new Map();
-			selectedKey = rows[0]?.key ?? null;
-			if (selectedKey) selectGroup(selectedKey);
+			all = await api.dues.list({ from: `${year}-01-01`, to: `${year}-12-31`, courseName: courseName || undefined });
+			if (term && !all.some((d) => d.periodStart === term)) term = '';
+			selectedKey = null;
 		} catch (err) {
 			error = errorMessage(err, 'Failed to load dues');
+			all = [];
 		} finally {
 			loading = false;
 		}
 	}
 
-	/** Query for the dues behind one aggregate row */
-	function queryFor(key: string) {
-		const q: { courseName?: string; status?: DueStatus; from?: string; to?: string } = { from: from || undefined, to: to || undefined };
-		if (groupBy === 'course') q.courseName = key;
-		if (groupBy === 'status') q.status = key as DueStatus;
-		if (groupBy === 'month') {
-			const [y, m] = key.split('-').map(Number);
-			const start = `${key}-01`;
-			const end = isoDate(new Date(y, m, 0));
-			q.from = from && from > start ? from : start;
-			q.to = to && to < end ? to : end;
-		}
-		if (statusFilter && statusFilter !== 'ALL' && groupBy !== 'status') q.status = statusFilter;
-		return q;
-	}
+	/** The year's terms, from the dues themselves */
+	let terms = $derived(
+		[...new Map(all.map((d) => [d.periodStart, d])).values()]
+			.sort((a, b) => a.periodStart.localeCompare(b.periodStart))
+			.map((d) => ({ value: d.periodStart, label: `${formatPeriod(d.periodStart, d.periodEnd)}${d.feeStructureName ? ` · ${d.feeStructureName}` : ''}` }))
+	);
+	let inTerm = $derived(term ? all.filter((d) => d.periodStart === term) : all);
 
+	function keyOf(d: Due): string {
+		return groupBy === 'course' ? d.courseName : groupBy === 'term' ? d.periodStart : d.status;
+	}
 	function keepRow(d: Due) {
-		return statusFilter === '' && groupBy !== 'status' ? d.status === 'DUE' || d.status === 'PARTIALLY_PAID' : true;
+		if (groupBy === 'status' || statusFilter === 'ALL') return true;
+		if (statusFilter === '') return d.status === 'DUE' || d.status === 'PARTIALLY_PAID';
+		return d.status === statusFilter;
 	}
 
-	async function loadDetails(key: string) {
-		if (details.has(key)) return;
-		loadingDetails = true;
-		try {
-			const list = (await api.dues.list(queryFor(key))).filter(keepRow);
-			details.set(key, list);
-			details = new Map(details);
-		} catch (err) {
-			error = errorMessage(err, 'Failed to load dues');
-		} finally {
-			loadingDetails = false;
+	/** Group totals include every status; the list follows "Show dues" */
+	let rows = $derived.by<Row[]>(() => {
+		const m = new Map<string, Row>();
+		for (const d of inTerm) {
+			const k = keyOf(d);
+			const r = m.get(k) ?? { key: k, count: 0, amount: 0, balance: 0 };
+			r.count += 1;
+			r.amount += d.amount;
+			r.balance += d.balance;
+			m.set(k, r);
 		}
-	}
+		return [...m.values()].sort((a, b) => (groupBy === 'term' ? a.key.localeCompare(b.key) : b.balance - a.balance));
+	});
+	let details = $derived.by(() => {
+		const m = new Map<string, Due[]>();
+		for (const d of inTerm) {
+			if (!keepRow(d)) continue;
+			const k = keyOf(d);
+			m.set(k, [...(m.get(k) ?? []), d]);
+		}
+		for (const list of m.values())
+			list.sort((a, b) => (a.studentName ?? '').localeCompare(b.studentName ?? '') || a.periodStart.localeCompare(b.periodStart));
+		return m;
+	});
 
-	async function selectGroup(key: string) {
+	function selectGroup(key: string) {
 		selectedKey = key;
-		courseSummary = null;
-		loadDetails(key);
-		if (groupBy === 'course') {
-			try {
-				courseSummary = await api.dues.courseSummary(key);
-			} catch {
-				courseSummary = null;
-			}
-		}
-	}
-
-	function refilter() {
-		details = new Map();
-		if (selectedKey) loadDetails(selectedKey);
 	}
 
 	function clearFilters() {
-		from = '';
-		to = isoDate();
+		year = thisYear;
+		term = '';
+		courseName = '';
 		statusFilter = '';
-		loadAggregates();
+		load();
 	}
 
 	function groupLabel(key: string): string {
-		if (groupBy === 'month') {
-			const [y, m] = key.split('-');
-			return `${MONTHS[Number(m) - 1]} ${y}`;
-		}
+		if (groupBy === 'term') return terms.find((t) => t.value === key)?.label ?? formatDate(key);
 		if (groupBy === 'status') return STATUS_LABEL[key as DueStatus] ?? key;
 		return key;
 	}
@@ -122,7 +121,6 @@
 	async function print(keys: string[]) {
 		printing = true;
 		try {
-			await Promise.all(keys.map(loadDetails));
 			printKeys = keys;
 			await tick();
 			window.print();
@@ -133,24 +131,35 @@
 	}
 
 	function downloadCSV() {
-		const headers = [groupBy === 'course' ? 'Course' : groupBy === 'month' ? 'Month' : 'Status', 'Dues', 'Billed', 'Balance'];
-		const lines = rows.map((r) => [groupLabel(r.key), r.count, r.amount, r.balance]);
+		const headers = ['Student', 'Admission #', 'Course', 'Term', 'Term start', 'Term end', 'Fee structure', 'Amount', 'Paid', 'Discount', 'Balance', 'Status'];
+		const lines = inTerm.filter(keepRow).map((d) => [
+			d.studentName ?? '',
+			d.studentId,
+			d.courseName,
+			formatPeriod(d.periodStart, d.periodEnd),
+			d.periodStart,
+			d.periodEnd,
+			d.feeStructureName ?? '',
+			d.amount,
+			d.paidAmount,
+			d.discountAmount,
+			d.balance,
+			STATUS_LABEL[d.status as DueStatus] ?? d.status
+		]);
 		const csv = [headers, ...lines]
-			.map((r) => r.map((c) => (String(c).includes(',') ? `"${String(c).replace(/"/g, '""')}"` : String(c))).join(','))
+			.map((r) => r.map((c) => (/[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : String(c))).join(','))
 			.join('\n');
 		const link = document.createElement('a');
 		link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-		link.download = `dues-by-${groupBy}-${isoDate()}.csv`;
+		link.download = `dues-${term || year}-${isoDate()}.csv`;
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
 	}
 
 	function rangeLabel() {
-		if (from && to) return `Periods starting ${formatDate(from)} – ${formatDate(to)}`;
-		if (to) return `Periods starting up to ${formatDate(to)}`;
-		if (from) return `Periods starting from ${formatDate(from)}`;
-		return 'All periods';
+		const t = terms.find((x) => x.value === term);
+		return `${t ? t.label : `Terms starting in ${year}`}${courseName ? ` · ${courseName}` : ''}`;
 	}
 	function statusFilterLabel() {
 		if (groupBy === 'status' || statusFilter === 'ALL') return 'All statuses';
@@ -158,11 +167,12 @@
 		return STATUS_LABEL[statusFilter];
 	}
 
-	let selectedRow = $derived(rows.find((r) => r.key === selectedKey) ?? null);
-	let selectedDetails = $derived(selectedKey ? details.get(selectedKey) ?? [] : []);
+	let selectedRow = $derived(rows.find((r) => r.key === selectedKey) ?? rows[0] ?? null);
+	let selectedDetails = $derived(selectedRow ? details.get(selectedRow.key) ?? [] : []);
 	let totalBalance = $derived(rows.reduce((s, r) => s + r.balance, 0));
 	let totalBilled = $derived(rows.reduce((s, r) => s + r.amount, 0));
 	let totalCount = $derived(rows.reduce((s, r) => s + r.count, 0));
+	let openCount = $derived(inTerm.filter((d) => d.balance > 0).length);
 	let detailBalance = $derived(selectedDetails.reduce((s, d) => s + d.balance, 0));
 </script>
 
@@ -175,7 +185,7 @@
 		<div class="page-head-row">
 			<div>
 				<h1 class="page-title">Outstanding <em>dues</em></h1>
-				<p class="page-subtitle">Dues across the school by course, month or status. They're recalculated automatically.</p>
+				<p class="page-subtitle">Every student's dues for a year or one term, by course, term or status. They're calculated automatically.</p>
 			</div>
 			<div style="display: flex; gap: 8px;">
 				<button class="btn-s btn-secondary-s" onclick={() => print(rows.map((r) => r.key))} disabled={printing || rows.length === 0}>
@@ -197,17 +207,17 @@
 		<div class="kpi">
 			<div class="kpi-label">Billed</div>
 			<div class="kpi-value"><Money value={totalBilled} mono={false} /></div>
-			<div class="kpi-meta"><span>Same periods</span></div>
+			<div class="kpi-meta"><span>Same terms</span></div>
 		</div>
 		<div class="kpi">
 			<div class="kpi-label">Collected or discounted</div>
 			<div class="kpi-value" style="color: var(--ok);"><Money value={totalBilled - totalBalance} mono={false} /></div>
-			<div class="kpi-meta"><span>Billed minus balance (incl. waived)</span></div>
+			<div class="kpi-meta"><span>Billed minus balance</span></div>
 		</div>
 		<div class="kpi">
-			<div class="kpi-label">Dues</div>
-			<div class="kpi-value" style="color: var(--accent);">{totalCount}</div>
-			<div class="kpi-meta"><span>{rows.length} group{rows.length !== 1 ? 's' : ''} by {groupBy}</span></div>
+			<div class="kpi-label">Terms owed</div>
+			<div class="kpi-value" style="color: var(--accent);">{openCount}</div>
+			<div class="kpi-meta"><span>of {totalCount} student terms</span></div>
 		</div>
 	</div>
 
@@ -225,11 +235,11 @@
 					<Select
 						bind:value={groupBy}
 						options={[
-							{ value: 'course' as AggregateGroupBy, label: 'Course' },
-							{ value: 'month' as AggregateGroupBy, label: 'Month (period start)' },
-							{ value: 'status' as AggregateGroupBy, label: 'Status' }
+							{ value: 'course' as GroupBy, label: 'Course' },
+							{ value: 'term' as GroupBy, label: 'Term' },
+							{ value: 'status' as GroupBy, label: 'Status' }
 						]}
-						onChange={() => loadAggregates()}
+						onChange={() => (selectedKey = null)}
 						ariaLabel="Group by"
 					/>
 				</div>
@@ -242,23 +252,37 @@
 							...DUE_STATUSES.map((st) => ({ value: st as StatusFilter, label: STATUS_LABEL[st] })),
 							{ value: 'ALL' as StatusFilter, label: 'All statuses' }
 						]}
-						onChange={refilter}
 						disabled={groupBy === 'status'}
 						ariaLabel="Status filter"
 					/>
 				</div>
 				<div class="field">
-					<label for="due-from">Period starts from</label>
-					<input id="due-from" type="date" class="input-s" bind:value={from} onchange={loadAggregates} />
+					<span class="field-label">Year</span>
+					<Select bind:value={year} options={YEARS.map((y) => ({ value: y, label: String(y) }))} onChange={() => { term = ''; load(); }} ariaLabel="Year" />
 				</div>
 				<div class="field">
-					<label for="due-to">Period starts up to</label>
-					<input id="due-to" type="date" class="input-s" bind:value={to} onchange={loadAggregates} />
+					<span class="field-label">Term</span>
+					<Select
+						bind:value={term}
+						options={[{ value: '', label: `All terms of ${year}` }, ...terms]}
+						onChange={() => (selectedKey = null)}
+						disabled={terms.length === 0}
+						ariaLabel="Term"
+					/>
+				</div>
+				<div class="field">
+					<span class="field-label">Course</span>
+					<Select
+						bind:value={courseName}
+						options={[{ value: '', label: 'All courses' }, ...courses.map((c) => ({ value: c.name, label: c.name }))]}
+						onChange={load}
+						ariaLabel="Course"
+					/>
 				</div>
 			</div>
 			<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 10px;">
 				<span class="muted" style="font-size: 12px;">Group totals include every status; the list on the right follows "Show dues".</span>
-				{#if from || statusFilter || to !== isoDate()}
+				{#if term || courseName || statusFilter || year !== thisYear}
 					<button class="btn-s btn-ghost-s btn-sm-s" onclick={clearFilters}>Clear filters</button>
 				{/if}
 			</div>
@@ -275,7 +299,7 @@
 				<div class="empty-s">
 					<div class="glyph">∅</div>
 					<div style="font-family: var(--font-serif); font-size: 18px; color: var(--fg); margin-top: 6px;">No dues found</div>
-					<div style="margin-top: 4px;">No dues match the selected dates.</div>
+					<div style="margin-top: 4px;">No dues for {rangeLabel().toLowerCase()}.</div>
 				</div>
 			</div>
 		</div>
@@ -288,10 +312,10 @@
 				</div>
 				<div class="dues-list-body">
 					{#each rows as r (r.key)}
-						<button type="button" class="dues-row" class:is-sel={r.key === selectedKey} onclick={() => selectGroup(r.key)}>
+						<button type="button" class="dues-row" class:is-sel={r.key === selectedRow?.key} onclick={() => selectGroup(r.key)}>
 							<span class="dues-avatar">
 								{#if groupBy === 'course'}<Book size={14} strokeWidth={1.6} />
-								{:else if groupBy === 'month'}<Calendar size={14} strokeWidth={1.6} />
+								{:else if groupBy === 'term'}<Calendar size={14} strokeWidth={1.6} />
 								{:else}<Hash size={14} strokeWidth={1.6} />{/if}
 							</span>
 							<span class="dues-row-body">
@@ -310,18 +334,14 @@
 						<div style="display: flex; gap: 14px; align-items: flex-start; flex: 1; min-width: 0;">
 							<span class="dues-avatar dues-avatar-lg">
 								{#if groupBy === 'course'}<Book size={20} strokeWidth={1.4} />
-								{:else if groupBy === 'month'}<Calendar size={20} strokeWidth={1.4} />
+								{:else if groupBy === 'term'}<Calendar size={20} strokeWidth={1.4} />
 								{:else}<Hash size={20} strokeWidth={1.4} />{/if}
 							</span>
 							<div style="min-width: 0; flex: 1;">
 								<h2 class="dues-detail-name">{groupLabel(selectedRow.key)}</h2>
 								<p class="dues-detail-sub">
 									{selectedRow.count} due{selectedRow.count !== 1 ? 's' : ''} · showing {statusFilterLabel().toLowerCase()}
-									{#if courseSummary}
-										<br />All time for this course: billed <Money value={courseSummary.amount} mono={false} />, paid <Money value={courseSummary.paid} mono={false} />,
-										discounts <Money value={courseSummary.discount} mono={false} />, balance <Money value={courseSummary.balance} mono={false} />
-										{#if courseSummary.credit > 0}, credit <Money value={courseSummary.credit} mono={false} />{/if}
-									{/if}
+									<br />{rangeLabel()}
 								</p>
 							</div>
 						</div>
@@ -341,9 +361,7 @@
 					</header>
 
 					<div class="dues-detail-body">
-						{#if loadingDetails && !details.has(selectedRow.key)}
-							<div style="display: flex; justify-content: center; padding: 60px 0;"><span class="spinner spinner-lg"></span></div>
-						{:else if selectedDetails.length === 0}
+						{#if selectedDetails.length === 0}
 							<div class="callout info"><div class="callout-body">No {statusFilterLabel().toLowerCase()} dues in this group.</div></div>
 						{:else}
 							<div class="tbl-wrap">
@@ -352,7 +370,7 @@
 										<tr>
 											<th>Student</th>
 											<th>Course</th>
-											<th>Period</th>
+											<th>Term</th>
 											<th class="num">Amount</th>
 											<th class="num">Paid</th>
 											<th class="num">Discount</th>
@@ -426,7 +444,7 @@
 							<tr>
 								<th>Student</th>
 								<th>Course</th>
-								<th>Period</th>
+								<th>Term</th>
 								<th class="num">Amount</th>
 								<th class="num">Paid</th>
 								<th class="num">Balance</th>

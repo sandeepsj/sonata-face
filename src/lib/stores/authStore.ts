@@ -13,7 +13,6 @@ import { goto } from '$app/navigation';
 import { auth, users, configureAuth, errorMessage, type ApiError } from '$lib/api/client';
 import type { AccessLevel, RoleRef, RouteAccess, RoutePath } from '$lib/api/types';
 import { toast } from './toastStore';
-import { features } from '$lib/config/features';
 
 const STORAGE_KEYS = {
 	ACCESS_TOKEN: 'accessToken',
@@ -251,7 +250,7 @@ export const canAccess = derived(authStore, ($a) => {
 export function landingPath(routes: readonly RouteAccess[]): string {
 	if (can(routes, '/api/students/**')) return '/students';
 	if (can(routes, '/api/payments/**')) return '/payments';
-	if (features.missingEndpoints && can(routes, '/api/dues/**')) return '/dues';
+	if (can(routes, '/api/dues/**')) return '/dues';
 	if (can(routes, '/api/courses/**')) return '/courses';
 	if (can(routes, '/api/fee-structures/**')) return '/fees';
 	if (can(routes, '/api/users/**')) return '/admin/users';

@@ -100,7 +100,7 @@
 		{ href: '/students', label: 'Students', icon: Users, route: '/api/students/**' },
 		{ href: '/courses', label: 'Courses', icon: BookOpen, route: '/api/courses/**' },
 		{ href: '/fees', label: 'Fees', icon: CalendarRange, route: '/api/fee-structures/**' },
-		{ href: '/dues', label: 'Dues', icon: IndianRupee, route: '/api/dues/**', missing: true },
+		{ href: '/dues', label: 'Dues', icon: IndianRupee, route: '/api/dues/**' },
 		{ href: '/payments', label: 'Payments', icon: Banknote, route: '/api/payments/**' }
 	];
 
@@ -121,7 +121,7 @@
 		{ re: /^\/students/, route: '/api/students/**', what: 'students' },
 		{ re: /^\/courses/, route: '/api/courses/**', what: 'courses' },
 		{ re: /^\/fees/, route: '/api/fee-structures/**', what: 'fees' },
-		{ re: /^\/dues/, route: '/api/dues/**', what: 'the dues overview', missing: true },
+		{ re: /^\/dues/, route: '/api/dues/**', what: 'dues' },
 		{ re: /^\/payments/, route: '/api/payments/**', what: 'payments' },
 		{ re: /^\/admin\/dues-rebuild/, route: '/api/dues/**', what: 'dues recalculation' },
 		{ re: /^\/admin\/roles/, route: '/api/roles/**', what: 'roles' },
