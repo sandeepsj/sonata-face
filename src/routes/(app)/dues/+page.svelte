@@ -11,6 +11,18 @@
 	import Select from '$lib/components/Select.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
+	import FollowUp from './FollowUp.svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+
+	/** 'overview': dues by course/term/status; 'students': ongoing sessions sorted by unpaid terms */
+	let view = $derived($page.url.searchParams.get('view') === 'students' ? 'students' : 'overview');
+	function setView(v: 'overview' | 'students') {
+		const url = new URL($page.url);
+		if (v === 'students') url.searchParams.set('view', 'students');
+		else url.searchParams.delete('view');
+		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	}
 
 	type GroupBy = 'course' | 'term' | 'status';
 	/** '' = open dues (DUE + PARTIALLY_PAID) */
@@ -185,9 +197,13 @@
 		<div class="page-head-row">
 			<div>
 				<h1 class="page-title">Outstanding <em>dues</em></h1>
-				<p class="page-subtitle">Every student's dues for a year or one term, by course, term or status. They're calculated automatically.</p>
+				<p class="page-subtitle">
+					{view === 'students'
+						? 'Ongoing sessions with unpaid terms, most first. End the sessions of students who stopped coming.'
+						: "Every student's dues for a year or one term, by course, term or status. They're calculated automatically."}
+				</p>
 			</div>
-			<div style="display: flex; gap: 8px;">
+			<div style="display: flex; gap: 8px;" hidden={view !== 'overview'}>
 				<button class="btn-s btn-secondary-s" onclick={() => print(rows.map((r) => r.key))} disabled={printing || rows.length === 0}>
 					<Printer size={14} strokeWidth={1.6} /> Print all
 				</button>
@@ -198,6 +214,14 @@
 		</div>
 	</div>
 
+	<div class="seg" role="tablist" aria-label="Dues view" style="margin-bottom: 16px;">
+		<button role="tab" aria-selected={view === 'overview'} class:active={view === 'overview'} onclick={() => setView('overview')}>Overview</button>
+		<button role="tab" aria-selected={view === 'students'} class:active={view === 'students'} onclick={() => setView('students')}>Students to follow up</button>
+	</div>
+
+	{#if view === 'students'}
+		<FollowUp />
+	{:else}
 	<div class="kpi-grid" style="margin-bottom: 18px;">
 		<div class="kpi">
 			<div class="kpi-label">Balance</div>
@@ -411,6 +435,8 @@
 				{/if}
 			</section>
 		</div>
+	{/if}
+
 	{/if}
 
 	<!-- Print-only block: rendered only when printing -->
