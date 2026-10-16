@@ -51,18 +51,32 @@
 	async function load() {
 		loading = true;
 		error = '';
+		// Enrolment counts come from every ongoing session, which is slow to load: show the courses first
+		if (canReadSessions) loadCounts();
 		try {
-			const [c, s] = await Promise.all([
-				api.courses.list(),
-				canReadSessions ? api.sessions.list({ active: true }) : Promise.resolve([])
-			]);
-			courses = c.sort((a, b) => a.name.localeCompare(b.name));
-			activeSessions = s;
+			courses = (await api.courses.list()).sort((a, b) => a.name.localeCompare(b.name));
 		} catch (e) {
 			error = errorMessage(e, 'Failed to load courses');
 		} finally {
 			loading = false;
 		}
+	}
+
+	let countsLoading = $state(false);
+	async function loadCounts() {
+		countsLoading = true;
+		try {
+			activeSessions = await api.sessions.list({ active: true });
+		} catch {
+			activeSessions = [];
+		} finally {
+			countsLoading = false;
+		}
+	}
+
+	/** An enrolment count, or '…' while the sessions are still loading */
+	function countOf(course: string): string | number {
+		return countsLoading ? '…' : (studentCounts.get(course) ?? 0);
 	}
 
 	onMount(load);
@@ -163,11 +177,11 @@
 			</div>
 		{/if}
 		<div class="stat-card">
-			<div class="stat-value">{canReadSessions ? stats.students : '—'}</div>
+			<div class="stat-value">{canReadSessions ? (countsLoading ? '…' : stats.students) : '—'}</div>
 			<div class="stat-meta muted">students enrolled now</div>
 		</div>
 		<div class="stat-card">
-			<div class="stat-value">{canReadSessions ? stats.enrolments : '—'}</div>
+			<div class="stat-value">{canReadSessions ? (countsLoading ? '…' : stats.enrolments) : '—'}</div>
 			<div class="stat-meta muted">ongoing enrolments</div>
 		</div>
 	</div>
@@ -193,7 +207,7 @@
 									{#if c.status === 'CLOSED'}
 										<Lock size={11} strokeWidth={1.6} /> closed {formatDate(c.closedAt)}
 									{:else}
-										<Users size={11} strokeWidth={1.6} /> {studentCounts.get(c.name) ?? 0} enrolled
+										<Users size={11} strokeWidth={1.6} /> {countOf(c.name)} enrolled
 									{/if}
 								</span>
 							</span>
@@ -229,7 +243,7 @@
 									{#if selected.status === 'CLOSED'}
 										Closed on {formatDate(selected.closedAt)}. No new enrolments, timeline entries or course-fee payments.
 									{:else}
-										{studentCounts.get(selected.name) ?? 0} students enrolled now
+										{countOf(selected.name)} students enrolled now
 									{/if}
 								</p>
 								{#if canWriteCourse && legacy}
@@ -246,7 +260,7 @@
 					<div class="course-tabs">
 						{#if canReadSessions}
 							<button class="is-active">
-								Students <span class="tab-badge">{studentCounts.get(selected.name) ?? 0}</span>
+								Students <span class="tab-badge">{countOf(selected.name)}</span>
 							</button>
 						{/if}
 					</div>
