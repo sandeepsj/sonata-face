@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, canAccess, errorMessage, fieldErrors, toast } from '$lib';
-	import type { Payment, PaymentType } from '$lib/api/types';
-	import { formatDate as formatPeriodDate } from '$lib/utils/format';
+	import type { Due, Payment, PaymentType } from '$lib/api/types';
+	import { formatDate as formatPeriodDate, formatPeriod, money } from '$lib/utils/format';
 	import { Calendar, Filter, Download, Printer, AlertCircle, ArrowRightLeft } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
@@ -22,6 +22,43 @@
 	let converting = false;
 	let convertError = '';
 	let convertErrors: Record<string, string> = {};
+	/** The student's dues for the chosen course, to show which terms the payment will pay */
+	let convertDues: Due[] = [];
+	let convertDuesFor = '';
+	let convertDuesLoading = false;
+
+	async function loadConvertDues(p: Payment, course: string) {
+		const key = `${p.id}|${course}`;
+		if (convertDuesFor === key) return;
+		convertDuesFor = key;
+		convertDues = [];
+		if (!course) return;
+		convertDuesLoading = true;
+		try {
+			const list = await api.dues.list({ studentId: p.student.admissionNo, courseName: course });
+			if (convertDuesFor === key) convertDues = list;
+		} catch {
+			if (convertDuesFor === key) convertDues = [];
+		} finally {
+			if (convertDuesFor === key) convertDuesLoading = false;
+		}
+	}
+	$: if (toConvert && !convertLoading) loadConvertDues(toConvert, convertCourse);
+
+	type Allocation = { due: Due; applied: number; clears: boolean };
+	/** Like the backend: the payment (amount + discounts) fills the oldest term with a balance first */
+	function allocate(p: Payment, dues: Due[]): { rows: Allocation[]; credit: number } {
+		let left = (p.amountPaid || 0) + (p.discountAmount || 0);
+		const rows: Allocation[] = [];
+		for (const d of [...dues].filter((x) => x.balance > 0).sort((a, b) => a.periodStart.localeCompare(b.periodStart))) {
+			if (left <= 0) break;
+			const applied = Math.min(left, d.balance);
+			rows.push({ due: d, applied, clears: applied >= d.balance });
+			left -= applied;
+		}
+		return { rows, credit: Math.max(0, left) };
+	}
+	$: convertPlan = toConvert ? allocate(toConvert, convertDues) : { rows: [], credit: 0 };
 
 	/** The course a label names, e.g. "MUDRA FEE" → "Mudra" (longest match wins) */
 	function courseInLabel(label: string, options: string[]): string {
@@ -35,6 +72,8 @@
 		convertCourse = '';
 		convertError = '';
 		convertErrors = {};
+		convertDues = [];
+		convertDuesFor = '';
 		convertLoading = true;
 		try {
 			const [sessions, active] = await Promise.all([
@@ -653,16 +692,28 @@
 <Modal
 	open={toConvert !== null}
 	title="Convert to course fee"
-	subtitle={toConvert ? `Receipt ${toConvert.id} · ${toConvert.student?.studentName ?? ''} · "${toConvert.label}" · ₹${(toConvert.amountPaid + (toConvert.discountAmount || 0)).toLocaleString('en-IN')}` : ''}
+	subtitle={toConvert ? `Receipt ${toConvert.id} · ${formatPeriodDate(toConvert.date)}` : ''}
+	size="lg"
 	busy={converting}
 	onClose={() => (toConvert = null)}
 >
 	{#if toConvert}
 		<div style="display: flex; flex-direction: column; gap: 14px;">
-			<div class="callout info">
-				<div class="callout-body">
-					The payment keeps its amount, date, discounts and remarks. It becomes a course fee that pays the student's
-					oldest unpaid term of the course first, and the conversion is recorded with your name.
+			<div class="cv-facts">
+				<div>
+					<div class="kpi-label">Student</div>
+					<div class="strong">{toConvert.student?.studentName ?? '—'}</div>
+					<a href="/students/{toConvert.student?.admissionNo}/dues" target="_blank" rel="noopener noreferrer" class="cv-link">#{toConvert.student?.admissionNo} · open dues ↗</a>
+				</div>
+				<div>
+					<div class="kpi-label">Payment</div>
+					<div class="strong">{toConvert.label || '—'}</div>
+					{#if toConvert.remarks}<div class="muted" style="font-size: 12px;">{toConvert.remarks}</div>{/if}
+				</div>
+				<div style="text-align: right;">
+					<div class="kpi-label">Amount</div>
+					<div class="strong" style="font-family: var(--font-mono);">{money(toConvert.amountPaid + (toConvert.discountAmount || 0))}</div>
+					{#if toConvert.discountAmount}<div class="muted" style="font-size: 12px;">incl. {money(toConvert.discountAmount)} discount</div>{/if}
 				</div>
 			</div>
 			<div class="field">
@@ -680,6 +731,41 @@
 				{/if}
 				<FieldError errors={convertErrors} field="courseName" />
 			</div>
+			{#if convertCourse}
+				<div>
+					<div class="kpi-label" style="margin-bottom: 6px;">Terms this will pay</div>
+					{#if convertDuesLoading}
+						<div><span class="spinner"></span></div>
+					{:else if convertPlan.rows.length === 0}
+						<div class="callout info"><div class="callout-body">Nothing is owed for {convertCourse} right now, so all of it becomes credit for the next term.</div></div>
+					{:else}
+						<div class="tbl-wrap">
+							<table class="tbl">
+								<thead><tr><th>Term</th><th class="num">Owed now</th><th class="num">This payment</th><th>After</th></tr></thead>
+								<tbody>
+									{#each convertPlan.rows as r (r.due.id)}
+										<tr>
+											<td>
+												<span class="strong">{formatPeriod(r.due.periodStart, r.due.periodEnd)}</span>
+												<div class="muted" style="font-size: 11px;">{formatPeriodDate(r.due.periodStart)} – {formatPeriodDate(r.due.periodEnd)}</div>
+											</td>
+											<td class="num">{money(r.due.balance)}</td>
+											<td class="num strong">{money(r.applied)}</td>
+											<td>{#if r.clears}<Badge kind="ok">Paid</Badge>{:else}<Badge kind="warn">{money(r.due.balance - r.applied)} left</Badge>{/if}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						{#if convertPlan.credit > 0}
+							<div class="muted" style="font-size: 12px; margin-top: 6px;">{money(convertPlan.credit)} is left over and becomes credit for the next term.</div>
+						{/if}
+					{/if}
+					<div class="muted" style="font-size: 12px; margin-top: 6px;">
+						A course fee pays the oldest unpaid term first. The payment keeps its amount, date, discounts and remarks, and the conversion is recorded with your name.
+					</div>
+				</div>
+			{/if}
 			<ErrorCallout message={convertError} />
 		</div>
 	{/if}
@@ -692,6 +778,20 @@
 </Modal>
 
 <style>
+	.cv-facts {
+		display: grid;
+		grid-template-columns: 1fr 1fr auto;
+		gap: 14px;
+		padding: 12px 14px;
+		background: var(--bg-elev);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+	}
+	.cv-link {
+		color: var(--accent);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+	}
 	.summary-card .card-header { gap: 12px; flex-wrap: wrap; }
 	.summary-range { color: var(--fg-muted); font-weight: 400; font-size: 13px; }
 
