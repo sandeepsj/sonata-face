@@ -9,10 +9,6 @@
 	import Badge from '$lib/components/Badge.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import CourseStudentsTab from './CourseStudentsTab.svelte';
-	import { features } from '$lib/config/features';
-
-	// Course status and close/reopen aren't on backend. Fee structures and the timeline are on the Fees page.
-	const legacy = features.missingEndpoints;
 
 	type StatusFilter = 'ACTIVE' | 'CLOSED' | 'ALL';
 
@@ -20,7 +16,7 @@
 	let activeSessions: StudentSession[] = $state([]);
 	let loading = $state(true);
 	let error = $state('');
-	let statusFilter = $state<StatusFilter>(legacy ? 'ACTIVE' : 'ALL');
+	let statusFilter = $state<StatusFilter>('ACTIVE');
 
 
 	let busy = $state(false);
@@ -87,7 +83,7 @@
 	async function toggleClosed(c: Course) {
 		const closing = c.status === 'ACTIVE';
 		const msg = closing
-			? `Close ${c.name}? It will take no new enrolments, timeline entries or course-fee payments. Existing sessions, payments and dues stay as they are.`
+			? `Close ${c.name}? It will take no new enrolments, course fees or conversions. Existing sessions, payments and dues stay as they are.`
 			: `Reopen ${c.name}?`;
 		if (!confirm(msg)) return;
 		busy = true;
@@ -124,32 +120,23 @@
 				<h1 class="page-title">Courses &amp; <em>students</em></h1>
 				<p class="page-subtitle">Courses and who is enrolled in them. New courses and their fees are added on the Fees page.</p>
 			</div>
-			{#if legacy}
-				<div class="seg" role="radiogroup" aria-label="Course status">
-					{#each [['ACTIVE', 'Active'], ['CLOSED', 'Closed'], ['ALL', 'All']] as [v, label]}
-						<button class:active={statusFilter === v} role="radio" aria-checked={statusFilter === v} onclick={() => (statusFilter = v as StatusFilter)}>{label}</button>
-					{/each}
-				</div>
-			{/if}
+			<div class="seg" role="radiogroup" aria-label="Course status">
+				{#each [['ACTIVE', 'Active'], ['CLOSED', 'Closed'], ['ALL', 'All']] as [v, label]}
+					<button class:active={statusFilter === v} role="radio" aria-checked={statusFilter === v} onclick={() => (statusFilter = v as StatusFilter)}>{label}</button>
+				{/each}
+			</div>
 		</div>
 	</div>
 
-	<div class="course-stats" class:no-status={!legacy}>
-		{#if legacy}
-			<div class="stat-card">
-				<div class="stat-value">{stats.active}</div>
-				<div class="stat-meta muted">active courses</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{stats.closed}</div>
-				<div class="stat-meta muted">closed courses</div>
-			</div>
-		{:else}
-			<div class="stat-card">
-				<div class="stat-value">{courses.length}</div>
-				<div class="stat-meta muted">courses</div>
-			</div>
-		{/if}
+	<div class="course-stats">
+		<div class="stat-card">
+			<div class="stat-value">{stats.active}</div>
+			<div class="stat-meta muted">active courses</div>
+		</div>
+		<div class="stat-card">
+			<div class="stat-value">{stats.closed}</div>
+			<div class="stat-meta muted">closed courses</div>
+		</div>
 		<div class="stat-card">
 			<div class="stat-value">{canReadSessions ? (countsLoading ? '…' : stats.students) : '—'}</div>
 			<div class="stat-meta muted">students enrolled now</div>
@@ -200,18 +187,16 @@
 							<div style="min-width: 0; flex: 1;">
 								<div style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
 									<h2 class="course-detail-name">{selected.name}</h2>
-									{#if legacy}
-										{#if selected.status === 'ACTIVE'}<Badge kind="ok" dot>Active</Badge>{:else}<Badge kind="neutral">Closed</Badge>{/if}
-									{/if}
+									{#if selected.status === 'ACTIVE'}<Badge kind="ok" dot>Active</Badge>{:else}<Badge kind="neutral">Closed</Badge>{/if}
 								</div>
 								<p class="course-detail-sub">
 									{#if selected.status === 'CLOSED'}
-										Closed on {formatDate(selected.closedAt)}. No new enrolments, timeline entries or course-fee payments.
+										Closed on {formatDate(selected.closedAt)}. No new enrolments, course fees or conversions.
 									{:else}
 										{countOf(selected.name)} students enrolled now
 									{/if}
 								</p>
-								{#if canWriteCourse && legacy}
+								{#if canWriteCourse}
 									<div style="display: flex; gap: 8px; margin-top: 12px;">
 										<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => toggleClosed(selected!)} disabled={busy}>
 											{#if selected.status === 'ACTIVE'}<Lock size={12} strokeWidth={1.6} /> Close course{:else}<LockOpen size={12} strokeWidth={1.6} /> Reopen course{/if}
@@ -250,12 +235,8 @@
 		gap: 12px;
 		margin-bottom: 18px;
 	}
-	.course-stats.no-status {
-		grid-template-columns: repeat(3, 1fr);
-	}
 	@media (max-width: 1100px) {
-		.course-stats,
-		.course-stats.no-status { grid-template-columns: repeat(2, 1fr); }
+		.course-stats { grid-template-columns: repeat(2, 1fr); }
 	}
 	.stat-card {
 		background: var(--surface);

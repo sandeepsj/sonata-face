@@ -10,6 +10,7 @@ import type {
 	ApiErrorBody,
 	ConvertRequest,
 	Course,
+	CourseStatus,
 	Due,
 	DuesQuery,
 	DuesSummary,
@@ -18,7 +19,6 @@ import type {
 	FeeStructureRequest,
 	FieldErrorBody,
 	IsoDate,
-	IsoDateTime,
 	LegacyComparison,
 	Me,
 	PageResponse,
@@ -322,23 +322,24 @@ export const students = {
 // ---------- courses ----------
 
 export const courses = {
-	list: () => get<Course[]>('/api/courses'),
+	list: (status?: CourseStatus) => get<Course[]>(`/api/courses${qs({ status })}`),
+	get: (name: string) => get<Course>(`/api/courses/${enc(name)}`),
 	create: (name: string) => post<Course>('/api/courses', { name }),
-	/** Not on backend */
+	/** 409 when already closed. A closed course rejects new sessions, course fees and conversions. */
 	close: (name: string) => patch<Course>(`/api/courses/${enc(name)}/close`),
-	/** Not on backend */
+	/** 409 when already active */
 	reopen: (name: string) => patch<Course>(`/api/courses/${enc(name)}/reopen`)
 };
 
 // ---------- sessions ----------
 
 export const sessions = {
-	/** GET /api/student-sessions/all, filtered by any of studentId, courseName, active */
-	list: (q: SessionQuery = {}) => get<StudentSession[]>(`/api/student-sessions/all${qs(q as Query)}`),
+	/** Filtered by any of studentId, courseName, active, activeOn (sessions overlapping that date); [] when none */
+	list: (q: SessionQuery = {}) => get<StudentSession[]>(`/api/student-sessions${qs(q as Query)}`),
 	get: (id: number) => get<StudentSession>(`/api/student-sessions/${id}`),
 	create: (body: SessionCreateRequest) => post<StudentSession>('/api/student-sessions', body),
-	/** Disjoin now. A past `date` (YYYY-MM-DDTHH:mm:ss) is not on backend, which takes no body. */
-	disjoin: (id: number, date?: IsoDateTime) =>
+	/** Disjoin now, or on a past `date` (YYYY-MM-DD). Disjoining twice → 409. */
+	disjoin: (id: number, date?: IsoDate) =>
 		patch<StudentSession>(`/api/student-sessions/${id}/disjoin`, date ? { date } : undefined)
 };
 
@@ -378,7 +379,7 @@ export const feeTimeline = {
 // ---------- payments ----------
 
 export const payments = {
-	/** Not on backend: GET /api/payments takes no filters */
+	/** Newest first, with discounts */
 	list: (q: PaymentQuery = {}) => get<Payment[]>(`/api/payments${qs(q as Query)}`),
 	/** GET /api/payments/student/{studentId} */
 	forStudent: (studentId: number) => get<Payment[]>(`/api/payments/student/${studentId}`),

@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { api, canAccess, currentStudentStore, errorMessage, fieldErrors, toast } from '$lib';
 	import type { Course, SessionCreateRequest, StudentSession } from '$lib/api/types';
-	import { durationBetween, formatDate, fromDateTimeLocalInput, dateTimeLocalInput } from '$lib/utils/format';
+	import { durationBetween, formatDate, fromDateTimeLocalInput, isoDate } from '$lib/utils/format';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
 	import FieldError from '$lib/components/FieldError.svelte';
 	import {
@@ -16,7 +16,6 @@
 		AlertTriangle
 	} from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
-	import { features } from '$lib/config/features';
 
 	$: studentId = Number($page.params.id);
 	$: storeState = $currentStudentStore;
@@ -63,7 +62,8 @@
 
 	async function loadCourses() {
 		try {
-			courses = (await api.courses.list()).sort((a, b) => a.name.localeCompare(b.name));
+			// a closed course takes no new enrolments
+			courses = (await api.courses.list('ACTIVE')).sort((a, b) => a.name.localeCompare(b.name));
 		} catch (err) {
 			courses = [];
 		}
@@ -74,7 +74,7 @@
 		if (!session) return;
 		sessionToEnd = session;
 		endMode = 'now';
-		endDate = dateTimeLocalInput();
+		endDate = isoDate();
 		endError = '';
 		showConfirmModal = true;
 	}
@@ -92,7 +92,7 @@
 		}
 		try {
 			endingSession = true;
-			await api.sessions.disjoin(sessionToEnd.id, endMode === 'past' ? fromDateTimeLocalInput(endDate) : undefined);
+			await api.sessions.disjoin(sessionToEnd.id, endMode === 'past' ? endDate : undefined);
 			toast.ok(`${sessionToEnd.course.name} session ended. Dues updated.`);
 			showConfirmModal = false;
 			sessionToEnd = null;
@@ -371,15 +371,14 @@
 						</div>
 					</div>
 				</div>
-				<!-- Ending on a past date isn't on backend (disjoin takes no date) -->
-				<div class="field" style="margin-bottom: 14px;" hidden={!features.missingEndpoints}>
+				<div class="field" style="margin-bottom: 14px;">
 					<span class="kpi-label">Session ends</span>
 					<div class="seg">
 						<button class:active={endMode === 'now'} on:click={() => (endMode = 'now')} disabled={endingSession}>Now</button>
 						<button class:active={endMode === 'past'} on:click={() => (endMode = 'past')} disabled={endingSession}>On a past date</button>
 					</div>
 					{#if endMode === 'past'}
-						<input type="datetime-local" class="input-s" style="margin-top: 8px;" bind:value={endDate} max={dateTimeLocalInput()} disabled={endingSession} aria-label="End date" />
+						<input type="date" class="input-s" style="margin-top: 8px;" bind:value={endDate} max={isoDate()} disabled={endingSession} aria-label="End date" />
 						<span class="hint">Can't be before the join date.</span>
 					{/if}
 				</div>

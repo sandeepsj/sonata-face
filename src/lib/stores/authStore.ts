@@ -250,7 +250,7 @@ export const canAccess = derived(authStore, ($a) => {
 /** First page this user may open. */
 export function landingPath(routes: readonly RouteAccess[]): string {
 	if (can(routes, '/api/students/**')) return '/students';
-	if (features.missingEndpoints && can(routes, '/api/payments/**')) return '/payments';
+	if (can(routes, '/api/payments/**')) return '/payments';
 	if (features.missingEndpoints && can(routes, '/api/dues/**')) return '/dues';
 	if (can(routes, '/api/courses/**')) return '/courses';
 	if (can(routes, '/api/fee-structures/**')) return '/fees';

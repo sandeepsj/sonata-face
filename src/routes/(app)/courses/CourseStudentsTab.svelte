@@ -6,10 +6,6 @@
 	import { formatDate, isoDate } from '$lib/utils/format';
 	import Badge from '$lib/components/Badge.svelte';
 	import ErrorCallout from '$lib/components/ErrorCallout.svelte';
-	import { features } from '$lib/config/features';
-
-	// Listing sessions as of a date (`activeOn`) isn't on backend: list every session instead
-	const byDate = features.missingEndpoints;
 
 	let { course }: { course: Course } = $props();
 
@@ -24,8 +20,7 @@
 		loading = true;
 		error = '';
 		try {
-			const q = byDate ? { courseName: course.name, activeOn: activeOn || undefined } : { courseName: course.name };
-			sessions = (await api.sessions.list(q)).sort((a, b) =>
+			sessions = (await api.sessions.list({ courseName: course.name, activeOn: activeOn || undefined })).sort((a, b) =>
 				(a.student.studentName ?? '').localeCompare(b.student.studentName ?? '')
 			);
 		} catch (e) {
@@ -46,16 +41,11 @@
 <div class="course-card">
 	<div class="course-card-head" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
 		<div>
-			{#if byDate}
-				<span class="course-card-title">Students enrolled on {formatDate(activeOn)}</span>
-				<div class="muted" style="font-size: 12px; margin-top: 2px;">Sessions in {course.name} that cover the chosen date.</div>
-			{:else}
-				<span class="course-card-title">Students enrolled</span>
-				<div class="muted" style="font-size: 12px; margin-top: 2px;">Every session in {course.name}, ongoing and ended.</div>
-			{/if}
+			<span class="course-card-title">Students enrolled on {formatDate(activeOn)}</span>
+			<div class="muted" style="font-size: 12px; margin-top: 2px;">Sessions in {course.name} that cover the chosen date.</div>
 		</div>
 		<div style="display:flex; gap: 8px; align-items: flex-end;">
-			<div class="field" hidden={!byDate}><label for="active-on">Enrolled on</label><input id="active-on" type="date" class="input-s" bind:value={activeOn} onchange={load} /></div>
+			<div class="field"><label for="active-on">Enrolled on</label><input id="active-on" type="date" class="input-s" bind:value={activeOn} onchange={load} /></div>
 			<button class="btn-s btn-secondary-s btn-sm-s" onclick={() => window.print()} disabled={sessions.length === 0}>
 				<Printer size={14} strokeWidth={1.6} /> Print
 			</button>
@@ -65,7 +55,7 @@
 	{#if loading}
 		<div style="display: flex; justify-content: center; padding: 30px 0;"><span class="spinner spinner-lg"></span></div>
 	{:else if sessions.length === 0 && !error}
-		<div class="callout info" style="margin: 14px;"><div class="callout-body">No students {byDate ? `were enrolled in ${course.name} on ${formatDate(activeOn)}` : `have been enrolled in ${course.name}`}.</div></div>
+		<div class="callout info" style="margin: 14px;"><div class="callout-body">No students were enrolled in {course.name} on {formatDate(activeOn)}.</div></div>
 	{:else}
 		<div class="tbl-wrap" style="border: 0; border-radius: 0;">
 			<table class="tbl">
@@ -95,7 +85,7 @@
 			<div>
 				<div class="print-brand">Revathi <em>Arts</em> &amp; Music School</div>
 				<div class="print-title">{course.name} · students roster</div>
-				<div class="print-meta">{byDate ? `Enrolled on ${formatDate(activeOn)}` : 'All enrolments'} · {sessions.length} students · Generated {todayStr()}</div>
+				<div class="print-meta">Enrolled on {formatDate(activeOn)} · {sessions.length} students · Generated {todayStr()}</div>
 			</div>
 		</div>
 		<table class="print-tbl">

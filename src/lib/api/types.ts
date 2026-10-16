@@ -99,15 +99,10 @@ export type StudentSearchParams = {
 
 // ---------- courses ----------
 
-/** Course status is not on backend. */
 export type CourseStatus = 'ACTIVE' | 'CLOSED';
 
-export type Course = With<Schemas['Course'], 'name'> & {
-	/** not on backend */
-	status?: CourseStatus;
-	/** not on backend */
-	closedAt?: IsoDateTime | null;
-};
+/** A closed course takes no new sessions, course fees or conversions (409). */
+export type Course = Override<With<Schemas['Course'], 'name'>, { status: CourseStatus; closedAt?: IsoDateTime | null }>;
 
 // ---------- sessions ----------
 
@@ -127,13 +122,8 @@ export type SessionCreateRequest = Schemas['StudentSessionCreateRequest'] & {
 	courseName: string;
 };
 
-/** Query of GET /api/student-sessions/all */
-export type SessionQuery = NonNullable<
-	Paths['/api/student-sessions/all']['get']['parameters']['query']
-> & {
-	/** sessions that overlap this date; not on backend */
-	activeOn?: IsoDate;
-};
+/** Query of GET /api/student-sessions (`activeOn`: sessions that overlap that date) */
+export type SessionQuery = NonNullable<Paths['/api/student-sessions']['get']['parameters']['query']>;
 
 // ---------- fee structures & timeline (school-wide) ----------
 
@@ -200,15 +190,8 @@ export interface ConvertRequest {
 	courseName?: string;
 }
 
-/** Not on backend: the global payments list takes no filters. */
-export interface PaymentQuery {
-	studentId?: number;
-	courseName?: string;
-	type?: PaymentType;
-	active?: boolean;
-	from?: IsoDate;
-	to?: IsoDate;
-}
+/** Query of GET /api/payments */
+export type PaymentQuery = NonNullable<Paths['/api/payments']['get']['parameters']['query']>;
 
 // ---------- dues (calculated, never edited) ----------
 

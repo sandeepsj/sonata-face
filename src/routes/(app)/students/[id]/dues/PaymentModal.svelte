@@ -70,7 +70,7 @@
 		formError = '';
 		errors = {};
 		try {
-			courses = await api.courses.list();
+			courses = await api.courses.list('ACTIVE'); // closed courses take no course fees
 		} catch {
 			courses = [];
 		}
