@@ -70,8 +70,8 @@
 	const FIELDS = RECEIPT_VARIABLES.map((g) => ({ group: g.group, items: g.items.filter((v) => !v.label.startsWith('#')) }));
 
 	const EDITOR_CSS = `
-		.${CHIP_CLASS}{background:#e8f0fe;color:#1a4fb4;border-radius:4px;padding:0 4px;margin:0 1px;font-style:normal;white-space:nowrap;cursor:default;user-select:all;box-shadow:inset 0 0 0 1px #c6d7fb}
-		.${CHIP_CLASS}.__ed-cond{box-shadow:inset 0 0 0 1px #9db8f5;background:#eef3ff;border-bottom:1px dashed #6b8fe6}
+		.${CHIP_CLASS}{background:rgba(37,99,235,.1);border-radius:4px;padding:0 4px;margin:0 1px;white-space:nowrap;cursor:default;user-select:all;box-shadow:inset 0 0 0 1px rgba(37,99,235,.35)}
+		.${CHIP_CLASS}.__ed-cond{box-shadow:inset 0 0 0 1px rgba(37,99,235,.5);border-bottom:1px dashed #6b8fe6}
 		[data-ed-block]{outline:1px dashed #8fb0f0;outline-offset:-1px}
 		[data-ed-block=each]{background-image:linear-gradient(rgba(37,99,235,.05),rgba(37,99,235,.05))}
 		.${SELECTED_CLASS}{outline:2px solid #2563eb !important;outline-offset:1px}
@@ -301,11 +301,60 @@
 		snapshot(true);
 		if (hasTextSelection()) {
 			restoreRange();
+			const unlocked = unlockChips();
 			onRange();
+			relockChips(unlocked);
 		} else if (selected) {
 			onElement(selected);
 		}
 		changed();
+	}
+
+	// Chips are contenteditable=false, which execCommand skips. While formatting a selection, the chips in it
+	// become plain editable text (their token), so the formatting wraps them too, then they become chips again.
+	function unlockChips(): HTMLElement[] {
+		const sel = doc!.getSelection();
+		if (!sel || !sel.rangeCount) return [];
+		const r = sel.getRangeAt(0);
+		const chipOf = (n: Node) => (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest<HTMLElement>('.' + CHIP_CLASS);
+		const startChip = chipOf(r.startContainer);
+		const endChip = chipOf(r.endContainer);
+		if (startChip) r.setStartBefore(startChip);
+		if (endChip) r.setEndAfter(endChip);
+		const chips = Array.from(doc!.body.querySelectorAll<HTMLElement>('.' + CHIP_CLASS)).filter((c) => r.intersectsNode(c));
+		for (const c of chips) {
+			c.dataset.edUnlocked = '';
+			c.removeAttribute('contenteditable');
+			c.removeAttribute('class');
+			c.removeAttribute('title');
+			c.textContent = `⟦hb${c.dataset.hbToken}⟧`;
+			delete c.dataset.hbToken;
+		}
+		sel.removeAllRanges();
+		sel.addRange(r);
+		return chips;
+	}
+
+	function relockChips(unlocked: HTMLElement[]) {
+		if (!unlocked.length || !ed) return;
+		const ids = unlocked.map((c) => c.textContent?.match(/⟦hb(\d+)⟧/)?.[1]).filter(Boolean);
+		for (const c of unlocked) {
+			delete c.dataset.edUnlocked;
+			if (!c.getAttribute('class')) c.removeAttribute('class');
+			if (c.isConnected && !c.attributes.length) c.replaceWith(...c.childNodes);
+		}
+		decorate(doc!, ed.tokens);
+		// the selection shrank when the token text was replaced: stretch it over the chips again
+		const sel = doc!.getSelection();
+		const chips = ids.map((n) => doc!.body.querySelector<HTMLElement>(`.${CHIP_CLASS}[data-hb-token="${n}"]`)).filter((c): c is HTMLElement => !!c);
+		if (sel && sel.rangeCount && chips.length) {
+			const r = sel.getRangeAt(0);
+			if (r.comparePoint(chips[0], 0) < 0) r.setStartBefore(chips[0]);
+			const last = chips[chips.length - 1];
+			const afterLast = Array.prototype.indexOf.call(last.parentNode!.childNodes, last) + 1;
+			if (r.comparePoint(last.parentNode!, afterLast) > 0) r.setEndAfter(last);
+		}
+		if (sel && sel.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
 	}
 
 	function toggle(kind: 'bold' | 'italic' | 'underline') {
