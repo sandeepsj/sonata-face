@@ -13,6 +13,7 @@
 	import FieldError from '$lib/components/FieldError.svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import ReceiptFrame from '$lib/receipts/ReceiptFrame.svelte';
+	import DesignEditor from '$lib/receipts/DesignEditor.svelte';
 	import { RECEIPT_VARIABLES, SAMPLE_RECEIPT, type ReceiptVariable } from '$lib/receipts/data';
 	import { STANDARD_TEMPLATE_HTML } from '$lib/receipts/standard';
 
@@ -28,6 +29,12 @@
 	let savedName = $state('');
 	let savedCode = $state('');
 	let dirty = $derived(current != null && (name !== savedName || code !== savedCode));
+
+	/** Design: visual editor for non-developers; code: the HTML */
+	let tab: 'design' | 'code' = $state('design');
+	/** Bumped to reload the design canvas from `code` */
+	let designKey = $state(0);
+	let showPreview = $state(false);
 
 	let canWrite = $derived($canAccess('/api/receipt-templates/**', 'write'));
 	let readOnly = $derived(!canWrite || !!current?.builtIn);
@@ -106,6 +113,7 @@
 		formError = '';
 		errors = {};
 		setEditorDoc(t.html);
+		designKey++;
 	}
 
 	async function open(id: number) {
@@ -185,6 +193,17 @@
 		if (view && view.state.doc.toString() !== text) {
 			view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
 		}
+	}
+
+	function switchTab(to: 'design' | 'code') {
+		if (to === tab) return;
+		if (to === 'design') designKey++;
+		tab = to;
+	}
+
+	function onDesignChange(html: string) {
+		code = html;
+		setEditorDoc(html);
 	}
 
 	function insertVariable(v: ReceiptVariable) {
@@ -296,7 +315,7 @@
 	{:else if loadError}
 		<ErrorCallout message={loadError} />
 	{:else}
-		<div class="tpl-grid">
+		<div class="tpl-grid" class:design-only={!!current && tab === 'design' && !showPreview}>
 			<!-- list -->
 			<div class="card-s tpl-list">
 				{#each templates as t (t.id)}
@@ -372,7 +391,21 @@
 					<ErrorCallout message={formError} />
 					<FieldError {errors} field="html" />
 
-					{#if !readOnly}
+					<div class="tpl-tabs">
+						<div class="seg" role="tablist" aria-label="Editor">
+							<button role="tab" class:active={tab === 'design'} aria-selected={tab === 'design'} onclick={() => switchTab('design')}>Design</button>
+							<button role="tab" class:active={tab === 'code'} aria-selected={tab === 'code'} onclick={() => switchTab('code')}>HTML code</button>
+						</div>
+						{#if tab === 'design'}
+							<label class="tpl-preview-toggle"><input type="checkbox" bind:checked={showPreview} /> Preview with sample data</label>
+						{/if}
+					</div>
+
+					{#if tab === 'design'}
+						{#key designKey}
+							<div class="tpl-design"><DesignEditor html={code} {readOnly} onChange={onDesignChange} /></div>
+						{/key}
+					{:else if !readOnly}
 						<div class="tpl-vars">
 							{#each RECEIPT_VARIABLES as g}
 								<div class="tpl-vars-group">{g.group}</div>
@@ -389,11 +422,11 @@
 				{:else}
 					<div class="empty-s">Pick a template to edit.</div>
 				{/if}
-				<div class="tpl-code" class:hidden-editor={!current} bind:this={editorEl}></div>
+				<div class="tpl-code" class:hidden-editor={!current || tab !== 'code'} bind:this={editorEl}></div>
 			</div>
 
 			<!-- preview -->
-			<div class="card-s tpl-preview">
+			<div class="card-s tpl-preview" class:hidden-preview={!!current && tab === 'design' && !showPreview}>
 				<div class="tpl-preview-head">Preview <span class="muted">· sample data</span></div>
 				<div class="tpl-preview-body">
 					{#if current}
@@ -461,6 +494,36 @@
 		gap: 16px;
 		height: calc(100vh - 230px);
 		min-height: 520px;
+	}
+	.tpl-grid.design-only {
+		grid-template-columns: 220px minmax(0, 1fr);
+	}
+	.tpl-preview.hidden-preview {
+		display: none;
+	}
+	.tpl-tabs {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--border);
+	}
+	.tpl-tabs .seg {
+		margin: 0;
+	}
+	.tpl-preview-toggle {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12.5px;
+		color: var(--fg-muted);
+		cursor: pointer;
+	}
+	.tpl-design {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 	.tpl-list {
 		padding: 6px;
@@ -591,7 +654,8 @@
 		background: var(--bg-elev);
 	}
 	@media (max-width: 1100px) {
-		.tpl-grid {
+		.tpl-grid,
+		.tpl-grid.design-only {
 			grid-template-columns: 1fr;
 			height: auto;
 		}
