@@ -137,6 +137,17 @@
 	let nav = $derived(NAV.filter((i) => (!i.missing || features.missingEndpoints) && $canAccess(i.route, i.level)));
 	let adminNav = $derived(ADMIN_NAV.filter((i) => (!i.missing || features.missingEndpoints) && $canAccess(i.route, i.level)));
 
+	// Route patterns that have a page, so a crumb like "Admin" (/admin has none) isn't a link to a 404
+	const PAGE_ROUTES = Object.keys(import.meta.glob('/src/routes/**/+page.svelte')).map((f) => {
+		const segs = f
+			.replace(/^\/src\/routes/, '')
+			.replace(/\/\+page\.svelte$/, '')
+			.split('/')
+			.filter((x) => x && !/^\(.*\)$/.test(x));
+		return new RegExp('^/' + segs.map((x) => (/^\[.*\]$/.test(x) ? '[^/]+' : x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).join('/') + '$');
+	});
+	const hasPage = (path: string) => PAGE_ROUTES.some((re) => re.test(path));
+
 	function pageCrumbs(path: string) {
 		const parts = path.split('/').filter(Boolean);
 		const crumbs: { label: string; href: string }[] = [];
@@ -146,7 +157,7 @@
 			const label = p
 				.replace(/-/g, ' ')
 				.replace(/\b\w/g, (c) => c.toUpperCase());
-			crumbs.push({ label, href: acc });
+			crumbs.push({ label, href: hasPage(acc) ? acc : '' });
 		}
 		return crumbs;
 	}
@@ -273,8 +284,10 @@
 					<span class="sep">/</span>
 					{#if i === crumbs.length - 1}
 						<span class="last">{c.label}</span>
-					{:else}
+					{:else if c.href}
 						<a href={c.href}>{c.label}</a>
+					{:else}
+						<span>{c.label}</span>
 					{/if}
 				{/each}
 			</div>
