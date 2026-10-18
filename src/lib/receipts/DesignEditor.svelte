@@ -51,6 +51,39 @@
 	let isUnderline = $state(false);
 	let align = $state('left');
 
+	// colour menus: a palette plus the colours used recently (kept in this browser)
+	const PALETTE = ['#000000', '#444444', '#888888', '#cccccc', '#ffffff', '#9a0e0e', '#d32f2f', '#e65100', '#f9a825', '#2e7d32', '#00796b', '#1565c0', '#0d2a6b', '#6a1b9a', '#fdecea', '#fff8e1', '#e8f5e9', '#e3f2fd'];
+	const RECENT_KEY = 'sonata.receiptEditor.recentColors';
+	let openMenu: 'text' | 'bg' | null = $state(null);
+	let recentColors: string[] = $state(loadRecent());
+
+	function loadRecent(): string[] {
+		try {
+			const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+			return Array.isArray(v) ? v.filter((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8) : [];
+		} catch {
+			return [];
+		}
+	}
+
+	function pickColor(kind: 'text' | 'bg', c: string) {
+		openMenu = null;
+		if (/^#[0-9a-f]{6}$/i.test(c)) {
+			recentColors = [c.toLowerCase(), ...recentColors.filter((x) => x !== c.toLowerCase())].slice(0, 8);
+			try {
+				localStorage.setItem(RECENT_KEY, JSON.stringify(recentColors));
+			} catch {
+				// private window / storage blocked: recent colours just aren't remembered
+			}
+		}
+		if (kind === 'text') setColor(c);
+		else setBackground(c);
+	}
+
+	function closeMenuOutside(e: MouseEvent) {
+		if (openMenu && !(e.target as Element | null)?.closest?.('.ed-color-wrap')) openMenu = null;
+	}
+
 	// undo: snapshots of the body
 	let undoStack: string[] = [];
 	let redoStack: string[] = [];
@@ -112,6 +145,7 @@
 	}
 
 	function onClick(e: MouseEvent) {
+		openMenu = null;
 		const el = elementOf(e.target as Node);
 		if (el) select(el);
 	}
@@ -468,6 +502,52 @@
 	const keepFocus = (e: MouseEvent) => e.preventDefault();
 </script>
 
+{#snippet colorMenu(kind: 'text' | 'bg', label: string, current: string)}
+	<div class="ed-color-wrap">
+		<button
+			class="ed-color"
+			class:on={openMenu === kind}
+			onmousedown={keepFocus}
+			onclick={() => (openMenu = openMenu === kind ? null : kind)}
+			title={label}
+			aria-label={label}
+			aria-expanded={openMenu === kind}
+		>
+			{#if kind === 'text'}<Baseline size={15} />{:else}<PaintBucket size={15} />{/if}
+			<span class="ed-swatch" style="background: {current};"></span>
+		</button>
+		{#if openMenu === kind}
+			<div class="ed-pop" role="dialog" aria-label={label}>
+				{#if recentColors.length}
+					<div class="ed-pop-title">Recent</div>
+					<div class="ed-swatches">
+						{#each recentColors as c}
+							<button class="ed-sw" class:on={c === current} style="background: {c};" onmousedown={keepFocus} onclick={() => pickColor(kind, c)} title={c} aria-label={c}></button>
+						{/each}
+					</div>
+				{/if}
+				<div class="ed-pop-title">Colours</div>
+				<div class="ed-swatches">
+					{#each PALETTE as c}
+						<button class="ed-sw" class:on={c === current} style="background: {c};" onmousedown={keepFocus} onclick={() => pickColor(kind, c)} title={c} aria-label={c}></button>
+					{/each}
+				</div>
+				<div class="ed-pop-actions">
+					<label class="ed-custom">
+						Custom…
+						<input type="color" value={current} onchange={(e) => pickColor(kind, e.currentTarget.value)} />
+					</label>
+					{#if kind === 'bg'}
+						<button class="ed-link" onmousedown={keepFocus} onclick={() => pickColor('bg', 'transparent')}>No colour</button>
+					{/if}
+				</div>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+<svelte:window onmousedown={closeMenuOutside} onkeydown={(e) => e.key === 'Escape' && (openMenu = null)} />
+
 {#if loadError}
 	<div class="callout warn" style="margin: 12px;">
 		<div class="callout-body">{loadError} Fix it in the HTML tab; the visual editor needs matching blocks.</div>
@@ -489,16 +569,8 @@
 				<button class="ed-btn" class:on={isItalic} onmousedown={keepFocus} onclick={() => toggle('italic')} title="Italic (Ctrl+I)" aria-label="Italic"><Italic size={15} /></button>
 				<button class="ed-btn" class:on={isUnderline} onmousedown={keepFocus} onclick={() => toggle('underline')} title="Underline (Ctrl+U)" aria-label="Underline"><Underline size={15} /></button>
 				<span class="ed-sep"></span>
-				<label class="ed-color" title="Text colour">
-					<Baseline size={15} />
-					<span class="ed-swatch" style="background: {color};"></span>
-					<input type="color" value={color} onchange={(e) => setColor(e.currentTarget.value)} aria-label="Text colour" />
-				</label>
-				<label class="ed-color" title="Background colour">
-					<PaintBucket size={15} />
-					<span class="ed-swatch" style="background: {background};"></span>
-					<input type="color" value={background} onchange={(e) => setBackground(e.currentTarget.value)} aria-label="Background colour" />
-				</label>
+				{@render colorMenu('text', 'Text colour', color)}
+				{@render colorMenu('bg', 'Background colour', background)}
 				<span class="ed-sep"></span>
 				<button class="ed-btn" class:on={align === 'left'} onmousedown={keepFocus} onclick={() => setAlign('left')} title="Align left" aria-label="Align left"><AlignLeft size={15} /></button>
 				<button class="ed-btn" class:on={align === 'center'} onmousedown={keepFocus} onclick={() => setAlign('center')} title="Centre" aria-label="Centre"><AlignCenter size={15} /></button>
@@ -627,11 +699,83 @@
 		margin-top: 1px;
 		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 	}
-	.ed-color input {
+	.ed-color {
+		border: 1px solid transparent;
+		background: none;
+		padding: 0;
+	}
+	.ed-color.on {
+		background: var(--bg-elev);
+		border-color: var(--border);
+	}
+	.ed-color-wrap {
+		position: relative;
+	}
+	.ed-pop {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 20;
+		width: 196px;
+		padding: 10px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+	}
+	.ed-pop-title {
+		font-size: 11px;
+		color: var(--fg-muted);
+		margin: 0 0 4px;
+	}
+	.ed-swatches {
+		display: grid;
+		grid-template-columns: repeat(6, 1fr);
+		gap: 6px;
+		margin-bottom: 10px;
+	}
+	.ed-sw {
+		width: 24px;
+		height: 24px;
+		border-radius: 5px;
+		border: 0;
+		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+		cursor: pointer;
+	}
+	.ed-sw:hover {
+		transform: scale(1.1);
+	}
+	.ed-sw.on {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+	.ed-pop-actions {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 12.5px;
+	}
+	.ed-custom {
+		position: relative;
+		color: var(--accent);
+		cursor: pointer;
+	}
+	.ed-custom input {
 		position: absolute;
 		inset: 0;
 		opacity: 0;
 		cursor: pointer;
+	}
+	.ed-link {
+		border: 0;
+		background: none;
+		padding: 0;
+		color: var(--fg-muted);
+		font: inherit;
+		cursor: pointer;
+	}
+	.ed-link:hover {
+		color: var(--fg);
 	}
 	.ed-crumbs {
 		display: flex;
