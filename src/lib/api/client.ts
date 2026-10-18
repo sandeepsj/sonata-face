@@ -26,6 +26,9 @@ import type {
 	PaymentCreateRequest,
 	PaymentQuery,
 	PreviewTerm,
+	ReceiptTemplate,
+	ReceiptTemplateRequest,
+	ReceiptTemplateSummary,
 	RebuildJob,
 	RebuildSchedule,
 	RebuildScope,
@@ -391,6 +394,23 @@ export const payments = {
 	/** ADDITIONAL → REGULAR. With a partial `amount`, returns the new REGULAR payment (`convertedFrom` = id). */
 	convertToCourseFee: (id: number, body: ConvertRequest = {}) =>
 		post<Payment>(`/api/payments/${id}/convert-to-course-fee`, body)
+};
+
+// ---------- receipt templates ----------
+
+/** HTML documents with Handlebars variables; render them only through $lib/receipts (sandboxed iframe). */
+export const receiptTemplates = {
+	/** Built-in first, then by name; no `html` */
+	list: () => get<ReceiptTemplateSummary[]>('/api/receipt-templates'),
+	get: (id: number) => get<ReceiptTemplate>(`/api/receipt-templates/${id}`),
+	getDefault: () => get<ReceiptTemplate>('/api/receipt-templates/default'),
+	/** 201. Duplicate name (ignoring case) → 409. */
+	create: (body: ReceiptTemplateRequest) => post<ReceiptTemplate>('/api/receipt-templates', body),
+	/** The built-in template → 409 */
+	update: (id: number, body: ReceiptTemplateRequest) => put<ReceiptTemplate>(`/api/receipt-templates/${id}`, body),
+	/** The built-in template → 409. Deleting the default makes the built-in one the default. */
+	remove: (id: number) => del(`/api/receipt-templates/${id}`),
+	makeDefault: (id: number) => patch<ReceiptTemplate>(`/api/receipt-templates/${id}/default`)
 };
 
 // ---------- dues (calculated, never edited) ----------

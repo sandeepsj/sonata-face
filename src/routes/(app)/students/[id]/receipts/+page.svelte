@@ -1,25 +1,44 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { currentStudentStore } from '$lib/stores/currentStudentStore';
-	import type { Student, Payment } from '$lib';
+	import { api, canAccess, errorMessage } from '$lib';
+	import type { Student, Payment, ReceiptTemplateSummary } from '$lib';
 	import { formatDate } from '$lib/utils/format';
 	import { amountCleared } from '$lib/utils/payments';
 	import { Printer, Receipt, CheckSquare, Square, X } from 'lucide-svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Money from '$lib/components/Money.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import ReceiptFrame from '$lib/receipts/ReceiptFrame.svelte';
+	import { buildReceiptData, type ReceiptData } from '$lib/receipts/data';
+	import { STANDARD_TEMPLATE_HTML } from '$lib/receipts/standard';
 
 	export let student: Student;
 
 	let selectedPaymentIds = new Set<number>();
 	let showReceiptPreview = false;
 	let selectedPaymentsForReceipt: Payment[] = [];
-	let receiptUrl = '';
-	let iframeElement: HTMLIFrameElement;
+	let receiptData: ReceiptData | null = null;
+	let frame: ReceiptFrame;
+
+	// templates: list + default loaded once, each template's HTML cached by id
+	let templates: ReceiptTemplateSummary[] = [];
+	let templateId: number | null = null;
+	let templateHtml: string | null = null;
+	let templatesLoaded = false;
+	let templateNote = '';
+	const htmlCache = new Map<number, string>();
 
 	$: currentStudent = student || $currentStudentStore.student;
 	$: studentId = currentStudent?.admissionNo;
 	$: activePayments = $currentStudentStore.payments.data.filter((p) => p.isActive);
 	$: allSelected = activePayments.length > 0 && selectedPaymentIds.size === activePayments.length;
+	$: canReadTemplates = $canAccess('/api/receipt-templates/**');
+	$: templateOptions = templates.map((t) => ({
+		value: t.id as number | null,
+		label: t.name,
+		sub: [t.isDefault ? 'Default' : '', t.builtIn ? 'Built-in' : ''].filter(Boolean).join(' · ') || undefined
+	}));
 
 	onMount(async () => {
 		if (studentId) {
@@ -43,39 +62,62 @@
 	function generateReceipt() {
 		if (selectedPaymentIds.size === 0) return;
 		selectedPaymentsForReceipt = activePayments.filter((p) => selectedPaymentIds.has(p.id));
-		const enriched = selectedPaymentsForReceipt.map((payment) => {
-			return {
-				id: payment.id,
-				date: payment.date,
-				label: payment.label,
-				courseName: payment.courseName,
-				amountPaid: payment.amountPaid,
-				discountAmount: payment.discountAmount,
-				discounts: payment.discounts
-			};
-		});
-		const receiptData = {
-			studentName: currentStudent?.studentName,
-			admissionNo: currentStudent?.admissionNo,
-			receiptId: getCombinedReceiptId(),
-			payments: enriched
-		};
-		receiptUrl = `/receipt-print?data=${encodeURIComponent(JSON.stringify(receiptData))}`;
+		receiptData = buildReceiptData(currentStudent ?? {}, selectedPaymentsForReceipt);
 		showReceiptPreview = true;
+		if (!templatesLoaded) loadTemplates();
+	}
+
+	async function loadTemplates() {
+		templatesLoaded = true;
+		if (!canReadTemplates) {
+			useStandard('');
+			return;
+		}
+		templateHtml = null;
+		try {
+			const [list, def] = await Promise.all([api.receiptTemplates.list(), api.receiptTemplates.getDefault()]);
+			templates = list;
+			htmlCache.set(def.id, def.html);
+			templateId = def.id;
+			templateHtml = def.html;
+			templateNote = '';
+		} catch (e) {
+			templatesLoaded = false;
+			useStandard(`${errorMessage(e, "Templates couldn't be loaded")}. Showing the standard receipt.`);
+		}
+	}
+
+	function useStandard(note: string) {
+		templates = [];
+		templateId = null;
+		templateHtml = STANDARD_TEMPLATE_HTML;
+		templateNote = note;
+	}
+
+	async function pickTemplate(id: number | null) {
+		if (id == null) return;
+		templateId = id;
+		const cached = htmlCache.get(id);
+		if (cached != null) {
+			templateHtml = cached;
+			return;
+		}
+		templateHtml = null;
+		try {
+			const t = await api.receiptTemplates.get(id);
+			htmlCache.set(id, t.html);
+			if (templateId === id) templateHtml = t.html;
+		} catch (e) {
+			if (templateId === id) templateNote = errorMessage(e, "The template couldn't be loaded");
+		}
 	}
 
 	function closePreview() {
 		showReceiptPreview = false;
-		receiptUrl = '';
 	}
 
 	function printReceipt() {
-		if (iframeElement?.contentWindow) iframeElement.contentWindow.print();
-	}
-
-	function getCombinedReceiptId(): string {
-		const ids = selectedPaymentsForReceipt.map((p) => p.id).sort((a, b) => a - b);
-		return `R-${ids.join('-')}`;
+		frame?.print();
 	}
 </script>
 
@@ -166,7 +208,7 @@
 	</div>
 {/if}
 
-{#if showReceiptPreview}
+{#if showReceiptPreview && receiptData}
 	<div class="modal-veil" on:click={closePreview} on:keydown={(e) => e.key === 'Escape' && closePreview()} role="presentation">
 		<div class="modal-s modal-xl" style="height: 85vh; display: flex; flex-direction: column;" role="dialog" aria-modal="true" on:click|stopPropagation on:keydown|stopPropagation>
 			<div class="modal-head">
@@ -176,17 +218,26 @@
 				</div>
 				<button class="btn-s btn-ghost-s btn-icon-s" on:click={closePreview} aria-label="Close"><X size={16} strokeWidth={1.6} /></button>
 			</div>
-			<div style="flex: 1; padding: 22px; overflow: hidden; background: var(--bg-elev);">
-				<iframe
-					bind:this={iframeElement}
-					src={receiptUrl}
-					title="Receipt preview"
-					style="width: 100%; height: 100%; background: white; border: 1px solid var(--border); border-radius: 8px;"
-				></iframe>
+			<div style="flex: 1; padding: 16px 22px 22px; overflow: hidden; background: var(--bg-elev); display: flex; flex-direction: column; gap: 10px;">
+				{#if templates.length > 0}
+					<div style="display: flex; align-items: center; gap: 10px;">
+						<span class="muted" style="font-size: 13px;">Template</span>
+						<div style="min-width: 240px;">
+							<Select value={templateId} options={templateOptions} size="sm" ariaLabel="Receipt template" onChange={pickTemplate} />
+						</div>
+						{#if $canAccess('/api/receipt-templates/**')}
+							<a href="/admin/receipt-templates" class="muted" style="font-size: 12.5px;">Edit templates</a>
+						{/if}
+					</div>
+				{/if}
+				{#if templateNote}<div class="muted" style="font-size: 12.5px;">{templateNote}</div>{/if}
+				<div style="flex: 1; min-height: 0;">
+					<ReceiptFrame bind:this={frame} html={templateHtml} data={receiptData} title="Receipt preview" />
+				</div>
 			</div>
 			<div class="modal-foot">
 				<button class="btn-s btn-secondary-s" on:click={closePreview}>Close</button>
-				<button class="btn-s btn-primary-s" on:click={printReceipt}>
+				<button class="btn-s btn-primary-s" on:click={printReceipt} disabled={templateHtml == null}>
 					<Printer size={14} strokeWidth={1.8} /> Print receipt
 				</button>
 			</div>

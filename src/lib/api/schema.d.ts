@@ -164,7 +164,7 @@ export interface paths {
             cookie?: never;
         };
         /** @description Needs **read** on route `/api/dues/**`. */
-        get: operations["list_4"];
+        get: operations["list_5"];
         put?: never;
         post?: never;
         delete?: never;
@@ -232,10 +232,10 @@ export interface paths {
             cookie?: never;
         };
         /** @description Needs **read** on route `/api/fee-structures/**`. */
-        get: operations["list_2"];
+        get: operations["list_3"];
         put?: never;
         /** @description Needs **write** on route `/api/fee-structures/**`. */
-        post: operations["create_2"];
+        post: operations["create_3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -250,12 +250,12 @@ export interface paths {
             cookie?: never;
         };
         /** @description Needs **read** on route `/api/fee-structures/**`. */
-        get: operations["get_1"];
+        get: operations["get_2"];
         /** @description Needs **write** on route `/api/fee-structures/**`. */
-        put: operations["update_2"];
+        put: operations["update_3"];
         post?: never;
         /** @description Needs **write** on route `/api/fee-structures/**`. */
-        delete: operations["delete_2"];
+        delete: operations["delete_3"];
         options?: never;
         head?: never;
         patch?: never;
@@ -269,10 +269,10 @@ export interface paths {
             cookie?: never;
         };
         /** @description Needs **read** on route `/api/fee-timeline/**`. */
-        get: operations["list_1"];
+        get: operations["list_2"];
         put?: never;
         /** @description Needs **write** on route `/api/fee-timeline/**`. */
-        post: operations["create_1"];
+        post: operations["create_2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -305,10 +305,10 @@ export interface paths {
         };
         get?: never;
         /** @description Needs **write** on route `/api/fee-timeline/**`. */
-        put: operations["update_1"];
+        put: operations["update_2"];
         post?: never;
         /** @description Needs **write** on route `/api/fee-timeline/**`. */
-        delete: operations["delete_1"];
+        delete: operations["delete_2"];
         options?: never;
         head?: never;
         patch?: never;
@@ -621,6 +621,77 @@ export interface paths {
         patch: operations["deactivatePayment"];
         trace?: never;
     };
+    "/api/receipt-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Needs **read** on route `/api/receipt-templates/**`. */
+        get: operations["list_1"];
+        put?: never;
+        /** @description Needs **write** on route `/api/receipt-templates/**`. */
+        post: operations["create_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/receipt-templates/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Needs **read** on route `/api/receipt-templates/**`. */
+        get: operations["getDefault"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/receipt-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Needs **read** on route `/api/receipt-templates/**`. */
+        get: operations["get_1"];
+        /** @description Needs **write** on route `/api/receipt-templates/**`. */
+        put: operations["update_1"];
+        post?: never;
+        /** @description Needs **write** on route `/api/receipt-templates/**`. */
+        delete: operations["delete_1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/receipt-templates/{id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Needs **write** on route `/api/receipt-templates/**`. */
+        patch: operations["makeDefault"];
+        trace?: never;
+    };
     "/api/roles": {
         parameters: {
             query?: never;
@@ -890,7 +961,7 @@ export interface paths {
             cookie?: never;
         };
         /** @description Needs **read** on route `/api/users/**`. */
-        get: operations["list_3"];
+        get: operations["list_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1115,6 +1186,7 @@ export interface components {
             /** Format: int32 */
             students?: number;
         };
+        JsonNode: unknown;
         LoginRequest: {
             email?: string;
             password?: string;
@@ -1321,6 +1393,37 @@ export interface components {
             paid?: number;
             /** Format: int64 */
             studentId?: number;
+        };
+        TemplateRequest: {
+            html?: components["schemas"]["JsonNode"];
+            name?: string;
+        };
+        TemplateResponse: {
+            builtIn?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
+            createdBy?: string;
+            html?: string;
+            /** Format: int64 */
+            id?: number;
+            isDefault?: boolean;
+            name?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            updatedBy?: string;
+        };
+        TemplateSummary: {
+            builtIn?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
+            createdBy?: string;
+            /** Format: int64 */
+            id?: number;
+            isDefault?: boolean;
+            name?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            updatedBy?: string;
         };
         TokenResponse: {
             accessToken?: string;
@@ -2117,7 +2220,7 @@ export interface operations {
             };
         };
     };
-    list_4: {
+    list_5: {
         parameters: {
             query?: {
                 studentId?: number;
@@ -2448,7 +2551,7 @@ export interface operations {
             };
         };
     };
-    list_2: {
+    list_3: {
         parameters: {
             query?: never;
             header?: {
@@ -2527,7 +2630,7 @@ export interface operations {
             };
         };
     };
-    create_2: {
+    create_3: {
         parameters: {
             query?: never;
             header?: {
@@ -2610,7 +2713,7 @@ export interface operations {
             };
         };
     };
-    get_1: {
+    get_2: {
         parameters: {
             query?: never;
             header?: {
@@ -2691,7 +2794,7 @@ export interface operations {
             };
         };
     };
-    update_2: {
+    update_3: {
         parameters: {
             query?: {
                 dryRun?: boolean;
@@ -2778,7 +2881,7 @@ export interface operations {
             };
         };
     };
-    delete_2: {
+    delete_3: {
         parameters: {
             query?: never;
             header?: {
@@ -2857,7 +2960,7 @@ export interface operations {
             };
         };
     };
-    list_1: {
+    list_2: {
         parameters: {
             query?: never;
             header?: {
@@ -2936,7 +3039,7 @@ export interface operations {
             };
         };
     };
-    create_1: {
+    create_2: {
         parameters: {
             query?: {
                 dryRun?: boolean;
@@ -3103,7 +3206,7 @@ export interface operations {
             };
         };
     };
-    update_1: {
+    update_2: {
         parameters: {
             query?: {
                 dryRun?: boolean;
@@ -3190,7 +3293,7 @@ export interface operations {
             };
         };
     };
-    delete_1: {
+    delete_2: {
         parameters: {
             query?: {
                 dryRun?: boolean;
@@ -4775,6 +4878,573 @@ export interface operations {
                 };
                 content: {
                     "*/*": Record<string, never>;
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_1: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateSummary"][];
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    create_1: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDefault: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_1: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_1: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_1: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request; `details` lists field problems */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Missing, invalid or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The token's routes don't allow this call */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict, e.g. a duplicate */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unexpected error; quote the X-Request-Id when reporting it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    makeDefault: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
+                "X-Request-Id"?: string;
+                /** @description Optional client session id, e.g. one per browser tab. Only used for logging. */
+                "X-Session-Id"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateResponse"];
                 };
             };
             /** @description Invalid request; `details` lists field problems */
@@ -6565,7 +7235,7 @@ export interface operations {
             };
         };
     };
-    list_3: {
+    list_4: {
         parameters: {
             query?: never;
             header?: {

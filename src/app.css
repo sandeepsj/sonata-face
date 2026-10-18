@@ -1055,7 +1055,7 @@ body {
 .tl-month-tick { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
 .tl-month-count { margin-left: auto; font-family: var(--font-mono); font-style: normal; font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--fg-muted); }
 
-/* DaisyUI integration overrides — keep DaisyUI for receipt-print */
+/* Printing an app page hides the navigation (receipts print from their own sandboxed iframe) */
 @media print {
   .sidebar, .topbar { display: none !important; }
 }

@@ -19,7 +19,8 @@
 		'/api/dues/**': 'Dues',
 		'/api/users/**': 'Users',
 		'/api/roles/**': 'Roles',
-		'/api/logging/**': 'Logging'
+		'/api/logging/**': 'Logging',
+		'/api/receipt-templates/**': 'Receipt templates'
 	};
 
 	let roles: Role[] = $state([]);

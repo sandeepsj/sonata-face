@@ -18,7 +18,8 @@
 		ShieldCheck,
 		UserCog,
 		RefreshCcw,
-		CalendarRange
+		CalendarRange,
+		FileText
 	} from 'lucide-svelte';
 	import { authStore, canAccess } from '$lib/stores/authStore';
 	import type { AccessLevel, RoutePath } from '$lib/api/types';
@@ -107,7 +108,8 @@
 	const ADMIN_NAV: NavItem[] = [
 		{ href: '/admin/users', label: 'Users', icon: UserCog, route: '/api/users/**' },
 		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck, route: '/api/roles/**' },
-		{ href: '/admin/dues-rebuild', label: 'Recalculate dues', icon: RefreshCcw, route: '/api/dues/**', level: 'write' }
+		{ href: '/admin/dues-rebuild', label: 'Recalculate dues', icon: RefreshCcw, route: '/api/dues/**', level: 'write' },
+		{ href: '/admin/receipt-templates', label: 'Receipt templates', icon: FileText, route: '/api/receipt-templates/**' }
 	];
 
 	type Guard = { re: RegExp; route: RoutePath; what: string; missing?: boolean };
@@ -125,6 +127,7 @@
 		{ re: /^\/payments/, route: '/api/payments/**', what: 'payments' },
 		{ re: /^\/admin\/dues-rebuild/, route: '/api/dues/**', what: 'dues recalculation' },
 		{ re: /^\/admin\/roles/, route: '/api/roles/**', what: 'roles' },
+		{ re: /^\/admin\/receipt-templates/, route: '/api/receipt-templates/**', what: 'receipt templates' },
 		{ re: /^\/admin/, route: '/api/users/**', what: 'users' }
 	];
 	let guard = $derived(GUARDS.find((g) => g.re.test($page.url.pathname)));

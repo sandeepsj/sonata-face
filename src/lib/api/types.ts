@@ -43,7 +43,8 @@ export const ROUTE_PATHS = [
 	'/api/dues/**',
 	'/api/users/**',
 	'/api/roles/**',
-	'/api/logging/**'
+	'/api/logging/**',
+	'/api/receipt-templates/**'
 ] as const;
 export type RoutePath = (typeof ROUTE_PATHS)[number];
 export type AccessLevel = 'read' | 'write';
@@ -289,3 +290,13 @@ export interface LegacyComparison {
 	totals: { legacyBilled: number; newBilled: number; legacyOutstanding: number; newOutstanding: number };
 	mismatches: number;
 }
+
+// ---------- receipt templates (REQ-090) ----------
+
+/** List item: no `html`, so the list stays light */
+export type ReceiptTemplateSummary = With<Schemas['TemplateSummary'], 'id' | 'name' | 'builtIn' | 'isDefault'>;
+
+/** One template with its HTML (Handlebars variables, see $lib/receipts) */
+export type ReceiptTemplate = ReceiptTemplateSummary & { html: string };
+
+export type ReceiptTemplateRequest = { name: string; html: string };
