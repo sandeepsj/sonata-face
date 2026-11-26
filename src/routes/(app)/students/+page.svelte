@@ -16,9 +16,11 @@
 		School,
 		MapPin,
 		Calendar,
-		User
+		User,
+		BookOpen,
+		CircleDot
 	} from 'lucide-svelte';
-	import { api, errorMessage, canAccess, type Student, type StudentSearchParams } from '$lib';
+	import { api, errorMessage, canAccess, type Student, type StudentSearchParams, type Course } from '$lib';
 	import { recentsStore } from '$lib/stores/recentsStore';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/Badge.svelte';
@@ -44,8 +46,22 @@
 		pinCode: '',
 		admissionDate: '',
 		admissionDateFrom: '',
-		admissionDateTo: ''
+		admissionDateTo: '',
+		courseName: '',
+		status: ''
 	});
+
+	let courses: Course[] = $state([]);
+	let courseOptions = $derived([
+		{ value: '', label: 'All subjects' },
+		...courses.map((c) => ({ value: c.name, label: c.name, sub: c.status === 'CLOSED' ? 'Closed' : undefined }))
+	]);
+	const statusOptions = [
+		{ value: '', label: 'All statuses' },
+		{ value: 'active', label: 'Active' },
+		{ value: 'suspended', label: 'Suspended' },
+		{ value: 'closed', label: 'Closed' }
+	];
 
 	function getActiveAdvancedFiltersCount(): number {
 		return Object.values(advancedSearchParams).filter((v) => v !== undefined && v !== null && v !== '').length;
@@ -63,7 +79,9 @@
 			pinCode: 'Pin',
 			admissionDate: 'Date',
 			admissionDateFrom: 'From',
-			admissionDateTo: 'To'
+			admissionDateTo: 'To',
+			courseName: 'Subject',
+			status: 'Status'
 		};
 		for (const [k, v] of Object.entries(advancedSearchParams)) {
 			if (v) filters.push({ key: k, label: `${labels[k] || k}: "${v}"` });
@@ -159,7 +177,9 @@
 			pinCode: '',
 			admissionDate: '',
 			admissionDateFrom: '',
-			admissionDateTo: ''
+			admissionDateTo: '',
+			courseName: '',
+			status: ''
 		};
 		pageSize = 10;
 		currentPage = 0;
@@ -176,6 +196,10 @@
 		const q = $page.url.searchParams.get('q');
 		if (q) searchQuery = q;
 		fetchStudents();
+		api.courses
+			.list()
+			.then((list) => (courses = list.sort((a, b) => a.name.localeCompare(b.name))))
+			.catch(() => (courses = []));
 	});
 </script>
 
@@ -277,6 +301,32 @@
 				<div class="field">
 					<label><MapPin size={12} strokeWidth={1.6} style="display:inline; margin-right:4px;" />Pin code</label>
 					<input class="input-s" type="text" placeholder="Pin" bind:value={advancedSearchParams.pinCode} onkeydown={(e) => e.key === 'Enter' && handleSearch()} />
+				</div>
+				<div class="field">
+					<label><BookOpen size={12} strokeWidth={1.6} style="display:inline; margin-right:4px;" />Subject</label>
+					<Select
+						value={advancedSearchParams.courseName ?? ''}
+						options={courseOptions}
+						onChange={(v) => {
+							advancedSearchParams.courseName = v;
+							handleSearch();
+						}}
+						size="sm"
+						ariaLabel="Subject"
+					/>
+				</div>
+				<div class="field">
+					<label><CircleDot size={12} strokeWidth={1.6} style="display:inline; margin-right:4px;" />Status</label>
+					<Select
+						value={(advancedSearchParams.status as string) ?? ''}
+						options={statusOptions}
+						onChange={(v) => {
+							advancedSearchParams.status = v;
+							handleSearch();
+						}}
+						size="sm"
+						ariaLabel="Student status"
+					/>
 				</div>
 				<div class="field">
 					<label><Calendar size={12} strokeWidth={1.6} style="display:inline; margin-right:4px;" />Admission date</label>

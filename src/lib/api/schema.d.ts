@@ -1067,6 +1067,8 @@ export interface components {
             /** Format: date-time */
             closedAt?: string;
             id?: string;
+            /** Format: int64 */
+            instituteId?: number;
             name?: string;
             /** @enum {string} */
             status?: "ACTIVE" | "CLOSED";
@@ -1085,6 +1087,8 @@ export interface components {
             discountAmount?: number;
             /** Format: int64 */
             id?: number;
+            /** Format: int64 */
+            instituteId?: number;
             label?: string;
             remarks?: string;
             /** Format: date-time */
@@ -1173,6 +1177,11 @@ export interface components {
             /** Format: int32 */
             updated?: number;
         };
+        InstituteRef: {
+            /** Format: int64 */
+            id?: number;
+            name?: string;
+        };
         Job: {
             changes?: components["schemas"]["Changes"];
             errors?: string[];
@@ -1195,6 +1204,7 @@ export interface components {
             email?: string;
             /** Format: int64 */
             id?: number;
+            institute?: components["schemas"]["InstituteRef"];
             roles?: components["schemas"]["RoleRef"][];
             routes?: components["schemas"]["RouteAccess"][];
         };
@@ -1244,6 +1254,8 @@ export interface components {
             finalAmount?: number;
             /** Format: int64 */
             id?: number;
+            /** Format: int64 */
+            instituteId?: number;
             isActive?: boolean;
             label?: string;
             /** @enum {string} */
@@ -1356,6 +1368,8 @@ export interface components {
             contactNo?: string;
             /** Format: date */
             dob?: string;
+            /** Format: int64 */
+            instituteId?: number;
             /** Format: int32 */
             pinCode?: number;
             remarks?: string;
@@ -1373,6 +1387,8 @@ export interface components {
             dateOfJoining?: string;
             /** Format: int64 */
             id?: number;
+            /** Format: int64 */
+            instituteId?: number;
             student?: components["schemas"]["Student"];
         };
         StudentSessionCreateRequest: {
@@ -6992,6 +7008,8 @@ export interface operations {
                 contactNo?: string;
                 className?: string;
                 admissionNo?: number;
+                status?: "active" | "closed" | "suspended";
+                courseName?: string;
             };
             header?: {
                 /** @description Optional id for this request; echoed back. A new one is made when missing or invalid. */
